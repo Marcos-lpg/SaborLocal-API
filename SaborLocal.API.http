@@ -1,0 +1,6 @@
+@SaborLocal.API_HostAddress = http://localhost:5037
+
+GET {{SaborLocal.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
