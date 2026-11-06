@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace SaborLocal.API.Models
 {
@@ -17,7 +18,10 @@ namespace SaborLocal.API.Models
         public string Descripcion { get; set; } = string.Empty;
 
         [Required]
+        [Column(TypeName = "decimal(18,2)")]
         public decimal Precio { get; set; }
+
+        public string Categoria { get; set; } = "General";
 
         public bool Disponible { get; set; } = true;
     }

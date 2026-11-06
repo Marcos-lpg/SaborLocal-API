@@ -30,6 +30,18 @@ namespace SaborLocal.API.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("Categoria")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Contrasena")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CorreoDuenio")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("Direccion")
                         .IsRequired()
                         .HasColumnType("text");
@@ -49,13 +61,49 @@ namespace SaborLocal.API.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("NombreDuenio")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("Telefono")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TelefonoComercio")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("Id");
 
                     b.ToTable("Comercios");
+                });
+
+            modelBuilder.Entity("SaborLocal.API.Models.DetallePedido", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Cantidad")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("NombreProducto")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("PedidoId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("Precio")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PedidoId");
+
+                    b.ToTable("DetallePedidos");
                 });
 
             modelBuilder.Entity("SaborLocal.API.Models.Pedido", b =>
@@ -66,7 +114,15 @@ namespace SaborLocal.API.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("CambioPara")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("ClienteNombre")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DireccionCliente")
                         .IsRequired()
                         .HasColumnType("text");
 
@@ -77,11 +133,19 @@ namespace SaborLocal.API.Migrations
                     b.Property<DateTime>("FechaCreacion")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("MetodoPago")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TelefonoCliente")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<int>("TenantId")
                         .HasColumnType("integer");
 
                     b.Property<decimal>("Total")
-                        .HasColumnType("numeric");
+                        .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
 
@@ -96,6 +160,10 @@ namespace SaborLocal.API.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("Categoria")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("Descripcion")
                         .IsRequired()
                         .HasColumnType("text");
@@ -108,7 +176,7 @@ namespace SaborLocal.API.Migrations
                         .HasColumnType("text");
 
                     b.Property<decimal>("Precio")
-                        .HasColumnType("numeric");
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<int>("TenantId")
                         .HasColumnType("integer");
@@ -116,6 +184,61 @@ namespace SaborLocal.API.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Productos");
+                });
+
+            modelBuilder.Entity("SaborLocal.API.Models.Usuario", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("ComercioId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ContrasenaHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Correo")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("FechaRegistro")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Rol")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Telefono")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Usuarios");
+                });
+
+            modelBuilder.Entity("SaborLocal.API.Models.DetallePedido", b =>
+                {
+                    b.HasOne("SaborLocal.API.Models.Pedido", "Pedido")
+                        .WithMany("Detalles")
+                        .HasForeignKey("PedidoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Pedido");
+                });
+
+            modelBuilder.Entity("SaborLocal.API.Models.Pedido", b =>
+                {
+                    b.Navigation("Detalles");
                 });
 #pragma warning restore 612, 618
         }

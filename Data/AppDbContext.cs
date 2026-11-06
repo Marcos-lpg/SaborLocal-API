@@ -11,6 +11,8 @@ namespace SaborLocal.API.Data
 
         public DbSet<Comercio> Comercios { get; set; }
         public DbSet<Producto> Productos { get; set; }
-        public DbSet<Pedido> Pedidos { get; set; } // <-- Agregamos esta línea
+        public DbSet<Pedido> Pedidos { get; set; }
+        public DbSet<DetallePedido> DetallePedidos { get; set; }
+        public DbSet<Usuario> Usuarios { get; set; }
     }
 }

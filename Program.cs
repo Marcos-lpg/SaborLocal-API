@@ -7,19 +7,31 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+// 1. Configurar CORS para permitir peticiones desde el frontend (React en puerto 5173)
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowReactApp",
+        policy => policy.AllowAnyOrigin()
+                        .AllowAnyMethod()
+                        .AllowAnyHeader());
+});
+
 builder.Services.AddControllers();
 
-// 1. Agregamos el generador de Swagger
+// Agregamos el generador de Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// 2. Activamos la interfaz gráfica de Swagger en desarrollo
+// 2. Activar la política de CORS (debe ir antes de UseAuthorization y MapControllers)
+app.UseCors("AllowReactApp");
+
+// Activamos la interfaz gráfica de Swagger en desarrollo
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI(); // Esto es lo que dibuja la página web interactiva
+    app.UseSwaggerUI(); 
 }
 
 app.UseHttpsRedirection();
