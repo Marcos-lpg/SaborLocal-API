@@ -161,6 +161,28 @@ function ClienteVista({ comercio }) {
     }
   };
 
+  const guardarEnHistorial = (pedidoPayload, dataApi) => {
+    try {
+      if (telefonoCliente) {
+        localStorage.setItem('clienteTelefono', telefonoCliente);
+      }
+      const nuevoRegistro = {
+        pedidoId: dataApi?.id || dataApi?.pedidoId || `ORD-${Date.now()}`,
+        tenantId: comercio.id,
+        nombreComercio: comercio.nombreComercio,
+        direccionComercio: comercio.direccion || '',
+        telefonoComercio: comercio.telefono || comercio.telefonoComercio || '',
+        total: pedidoPayload.total,
+        estado: dataApi?.estado || pedidoPayload.estado || 'RECIBIDO',
+        fechaCreacion: new Date().toISOString()
+      };
+      const previos = JSON.parse(localStorage.getItem('mis_pedidos') || '[]');
+      localStorage.setItem('mis_pedidos', JSON.stringify([nuevoRegistro, ...previos]));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const realizarPedido = async (e) => {
     e.preventDefault();
     if (!nombreCliente || !telefonoCliente || !direccionCliente) {
@@ -185,31 +207,32 @@ function ClienteVista({ comercio }) {
       setMensajeRevision(true);
     }
 
-    try {
-      const pedidoPayload = {
-        tenantId: comercio.id,
-        clienteNombre: nombreCliente,
-        telefonoCliente: telefonoCliente,
-        direccionCliente: direccionCliente,
-        metodoPago: metodoPago,
-        cambioPara: cambioPara || "Exacto",
-        total: parseFloat(calcularTotal()),
-        estado: "RECIBIDO",
-        comprobanteUrl: comprobanteBase64 || "",
-        comprobante: comprobanteBase64 || "",
-        imagenComprobante: comprobanteBase64 || "",
-        voucher: comprobanteBase64 || "",
-        urlComprobante: comprobanteBase64 || "",
-        detalles: carrito.map(item => ({
-          nombreProducto: item.nombre,
-          precio: parseFloat(item.precio),
-          cantidad: item.cantidad
-        }))
-      };
+    const pedidoPayload = {
+      tenantId: comercio.id,
+      clienteNombre: nombreCliente,
+      telefonoCliente: telefonoCliente,
+      direccionCliente: direccionCliente,
+      metodoPago: metodoPago,
+      cambioPara: cambioPara || "Exacto",
+      total: parseFloat(calcularTotal()),
+      estado: "RECIBIDO",
+      comprobanteUrl: comprobanteBase64 || "",
+      comprobante: comprobanteBase64 || "",
+      imagenComprobante: comprobanteBase64 || "",
+      voucher: comprobanteBase64 || "",
+      urlComprobante: comprobanteBase64 || "",
+      detalles: carrito.map(item => ({
+        nombreProducto: item.nombre,
+        precio: parseFloat(item.precio),
+        cantidad: item.cantidad
+      }))
+    };
 
+    try {
       console.log("Enviando pedido con comprobante comprimido...", pedidoPayload);
 
-      await api.post('/pedidos', pedidoPayload);
+      const res = await api.post('/pedidos', pedidoPayload);
+      guardarEnHistorial(pedidoPayload, res?.data);
 
       setTimeout(() => {
         setModalCheckout(false);
@@ -226,6 +249,7 @@ function ClienteVista({ comercio }) {
 
     } catch (err) {
       console.error("Error al enviar el pedido:", err);
+      guardarEnHistorial(pedidoPayload, null);
       alert("Hubo un error al procesar tu pedido. Inténtalo de nuevo.");
       setPedidoEnviado(false);
       setMensajeRevision(false);
