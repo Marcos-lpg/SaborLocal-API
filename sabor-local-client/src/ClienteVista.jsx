@@ -7,6 +7,7 @@ function ClienteVista({ comercio }) {
   const [error, setError] = useState(null);
   const [carrito, setCarrito] = useState([]);
   const [modalCheckout, setModalCheckout] = useState(false);
+  const [enLinea, setEnLinea] = useState(navigator.onLine);
 
   const [nombreCliente, setNombreCliente] = useState('');
   const [telefonoCliente, setTelefonoCliente] = useState('');
@@ -22,6 +23,38 @@ function ClienteVista({ comercio }) {
 
   const [pedidoEnviado, setPedidoEnviado] = useState(false);
   const [misPedidos, setMisPedidos] = useState([]);
+
+  useEffect(() => {
+    const manejarOnline = () => setEnLinea(true);
+    const manejarOffline = () => setEnLinea(false);
+
+    window.addEventListener('online', manejarOnline);
+    window.addEventListener('offline', manejarOffline);
+
+    return () => {
+      window.removeEventListener('online', manejarOnline);
+      window.removeEventListener('offline', manejarOffline);
+    };
+  }, []);
+
+  const guardarEnDirectorioOffline = (datosComercio, listaProductos) => {
+    try {
+      localStorage.setItem(`cache_menu_${datosComercio.id}`, JSON.stringify(listaProductos));
+      const directorioActual = JSON.parse(localStorage.getItem('directorio_offline') || '[]');
+      const ficha = {
+        id: datosComercio.id,
+        nombreComercio: datosComercio.nombreComercio,
+        direccion: datosComercio.direccion || 'Candelaria, Campeche',
+        telefono: datosComercio.telefono || datosComercio.telefonoComercio || 'Sin teléfono',
+        categoria: datosComercio.categoria || 'Especialidades de la Casa',
+        actualizadoEn: new Date().toISOString()
+      };
+      const sinDuplicado = directorioActual.filter(c => c.id !== datosComercio.id);
+      localStorage.setItem('directorio_offline', JSON.stringify([ficha, ...sinDuplicado]));
+    } catch (e) {
+      console.error('Error al guardar en caché local:', e);
+    }
+  };
 
   useEffect(() => {
     const bancoResto = localStorage.getItem(`banco_${comercio.id}`) || 
@@ -40,24 +73,46 @@ function ClienteVista({ comercio }) {
 
     const cargarProductosDelComercio = async () => {
       setLoading(true);
+      const cacheGuardada = localStorage.getItem(`cache_menu_${comercio.id}`);
+
+      if (!navigator.onLine) {
+        if (cacheGuardada) {
+          setProductos(JSON.parse(cacheGuardada));
+          setError(null);
+        } else {
+          setError("No hay menú guardado previamente para este comercio en modo sin conexión.");
+        }
+        setLoading(false);
+        return;
+      }
+
       try {
         const res = await api.get(`/productos/comercio/${comercio.id}`);
+        let listaFinal = [];
         if (res.data && res.data.length > 0) {
-          setProductos(res.data);
+          listaFinal = res.data;
         } else {
           const resGeneral = await api.get('/productos');
-          const filtrados = resGeneral.data.filter(p => 
+          listaFinal = resGeneral.data.filter(p => 
             p.tenantId === comercio.id || p.tenantId === 1 || !p.tenantId
           );
-          setProductos(filtrados);
         }
+        setProductos(listaFinal);
+        guardarEnDirectorioOffline(comercio, listaFinal);
         setError(null);
       } catch (err) {
         try {
           const resGeneral = await api.get('/productos');
           setProductos(resGeneral.data);
+          guardarEnDirectorioOffline(comercio, resGeneral.data);
+          setError(null);
         } catch (e) {
-          setError("No se pudo cargar el menú de este comercio.");
+          if (cacheGuardada) {
+            setProductos(JSON.parse(cacheGuardada));
+            setError(null);
+          } else {
+            setError("No se pudo cargar el menú de este comercio.");
+          }
         }
       } finally {
         setLoading(false);
@@ -67,12 +122,12 @@ function ClienteVista({ comercio }) {
     if (comercio?.id) {
       cargarProductosDelComercio();
     }
-  }, [comercio]);
+  }, [comercio, enLinea]);
 
-  // CORRECCIÓN: Los pedidos activos se mantienen visibles hasta que su estado sea COMPLETADO o CANCELADO
+  // Los pedidos activos se mantienen visibles hasta que su estado sea COMPLETADO o CANCELADO
   useEffect(() => {
     const verificarEstatusPedidos = async () => {
-      if (!telefonoCliente) return;
+      if (!telefonoCliente || !enLinea) return;
       try {
         const res = await api.get('/pedidos');
         const mios = (res.data || []).filter(p => 
@@ -87,9 +142,10 @@ function ClienteVista({ comercio }) {
       }
     };
 
+    verificarEstatusPedidos();
     const interval = setInterval(verificarEstatusPedidos, 4000);
     return () => clearInterval(interval);
-  }, [telefonoCliente, comercio.id]);
+  }, [telefonoCliente, comercio.id, enLinea]);
 
   const agregarAlCarrito = (producto) => {
     const itemExistente = carrito.find(item => item.id === producto.id);
@@ -128,7 +184,7 @@ function ClienteVista({ comercio }) {
         const img = new Image();
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 400; // Ancho máximo optimizado para comprobantes
+          const MAX_WIDTH = 400;
           const MAX_HEIGHT = 400;
           let width = img.width;
           let height = img.height;
@@ -150,7 +206,6 @@ function ClienteVista({ comercio }) {
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
 
-          // Comprimimos a JPEG con calidad 0.7 para reducir el peso drásticamente
           const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
           setComprobanteBase64(compressedBase64);
           setCargandoImagen(false);
@@ -185,6 +240,11 @@ function ClienteVista({ comercio }) {
 
   const realizarPedido = async (e) => {
     e.preventDefault();
+    if (!enLinea || !navigator.onLine) {
+      alert("Sin conexión a internet. Los pedidos en línea se restablecerán hasta que vuelvas a tener conexión.");
+      return;
+    }
+
     if (!nombreCliente || !telefonoCliente || !direccionCliente) {
       alert("Por favor completa tu nombre, teléfono y dirección de entrega.");
       return;
@@ -249,8 +309,7 @@ function ClienteVista({ comercio }) {
 
     } catch (err) {
       console.error("Error al enviar el pedido:", err);
-      guardarEnHistorial(pedidoPayload, null);
-      alert("Hubo un error al procesar tu pedido. Inténtalo de nuevo.");
+      alert("Hubo un error al procesar tu pedido o perdiste la conexión. Los pedidos en línea se restablecerán cuando vuelva tu conexión.");
       setPedidoEnviado(false);
       setMensajeRevision(false);
     }
@@ -259,15 +318,38 @@ function ClienteVista({ comercio }) {
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-12 text-slate-100">
       
+      {/* AVISO MODO SIN CONEXIÓN */}
+      {!enLinea && (
+        <div className="bg-amber-500/15 border border-amber-500/40 text-amber-200 px-5 py-4 rounded-3xl shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-xs sm:text-sm font-black text-amber-300 flex items-center gap-2">
+              <span>📡</span> Modo Sin Conexión (Directorio Offline Activo)
+            </p>
+            <p className="text-xs text-amber-100/90 leading-relaxed">
+              Estás consultando el menú y los datos guardados localmente. Los pedidos en línea y las actualizaciones de estado se restablecerán automáticamente hasta que vuelvas a tener conexión a internet.
+            </p>
+          </div>
+          <span className="text-[11px] font-bold bg-amber-500/20 border border-amber-500/30 px-3 py-1.5 rounded-xl text-amber-300 self-start sm:self-center whitespace-nowrap">
+            Solo consulta
+          </span>
+        </div>
+      )}
+
       {/* HERO BANNER */}
       <div className="relative rounded-3xl overflow-hidden bg-gradient-to-r from-[#121826] via-slate-900 to-[#121826] text-white shadow-2xl p-8 sm:p-10 border border-slate-800">
         <div className="absolute right-0 top-0 bottom-0 opacity-10 pointer-events-none text-9xl flex items-center pr-10 select-none">
           🍔
         </div>
         <div className="relative z-10 space-y-3">
-          <div className="inline-flex items-center gap-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
-            🟢 Establecimiento Abierto y Verificado
-          </div>
+          {enLinea ? (
+            <div className="inline-flex items-center gap-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+              🟢 Establecimiento Abierto y Verificado
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-2 bg-amber-500/20 border border-amber-500/30 text-amber-300 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+              🟡 Catálogo Guardado (Sin Conexión)
+            </div>
+          )}
           <h2 className="text-3xl sm:text-4xl font-black tracking-tight">{comercio.nombreComercio}</h2>
           <div className="flex flex-wrap gap-4 text-xs text-slate-400 font-medium pt-1">
             <span className="flex items-center gap-1.5">📍 {comercio.direccion || "Candelaria, Campeche"}</span>
@@ -281,9 +363,16 @@ function ClienteVista({ comercio }) {
 
       {misPedidos.length > 0 && (
         <div className="bg-[#121826] border border-orange-500/30 p-6 rounded-3xl shadow-2xl space-y-4">
-          <h3 className="text-sm font-black text-orange-400 flex items-center gap-2">
-            <span>🔔</span> Estado de tus Pedidos Activos
-          </h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-black text-orange-400 flex items-center gap-2">
+              <span>🔔</span> Estado de tus Pedidos Activos
+            </h3>
+            {!enLinea && (
+              <span className="text-[11px] text-amber-300 font-semibold">
+                ⏸️ En pausa sin red: se actualizará al volver la conexión
+              </span>
+            )}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {misPedidos.map(p => (
               <div key={p.id} className="bg-[#0b0f19] p-4 rounded-2xl border border-slate-800 space-y-2">
@@ -319,6 +408,12 @@ function ClienteVista({ comercio }) {
             <div className="py-20 text-center space-y-3">
               <div className="animate-spin text-3xl">🍔</div>
               <p className="text-slate-400 text-xs font-semibold">Cargando platillos deliciosos...</p>
+            </div>
+          ) : error && productos.length === 0 ? (
+            <div className="bg-[#121826] p-12 rounded-3xl text-center border border-slate-800 shadow-2xl space-y-2">
+              <p className="text-3xl">📡</p>
+              <h4 className="text-base font-bold text-white">Sin datos guardados</h4>
+              <p className="text-slate-400 text-xs">{error}</p>
             </div>
           ) : productos.length === 0 ? (
             <div className="bg-[#121826] p-12 rounded-3xl text-center border border-slate-800 shadow-2xl space-y-2">
@@ -381,8 +476,24 @@ function ClienteVista({ comercio }) {
                   <span>Total a pagar:</span>
                   <span className="text-orange-400">${calcularTotal()} <span className="text-xs font-semibold text-slate-500">MXN</span></span>
                 </div>
-                <button onClick={() => setModalCheckout(true)} className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-extrabold py-3.5 rounded-2xl transition duration-300 shadow-lg shadow-emerald-600/25 text-xs flex items-center justify-center gap-2">
-                  <span>Proceder al Pago</span><span>🚀</span>
+
+                {!enLinea && (
+                  <div className="bg-amber-500/10 border border-amber-500/30 text-amber-200 p-3 rounded-2xl text-[11px] leading-relaxed">
+                    📡 Sin conexión a internet. Tu selección se conserva aquí, pero el envío de pedidos se restablecerá hasta que vuelvas a tener conexión. También puedes llamar al <span className="font-bold text-white">{comercio.telefono || comercio.telefonoComercio || "local"}</span>.
+                  </div>
+                )}
+
+                <button
+                  onClick={() => setModalCheckout(true)}
+                  disabled={!enLinea}
+                  className={`w-full font-extrabold py-3.5 rounded-2xl transition duration-300 text-xs flex items-center justify-center gap-2 ${
+                    enLinea
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg shadow-emerald-600/25'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700 cursor-not-allowed'
+                  }`}
+                >
+                  <span>{enLinea ? 'Proceder al Pago' : 'Pedidos disponibles al volver la conexión'}</span>
+                  <span>{enLinea ? '🚀' : '📡'}</span>
                 </button>
               </div>
             </div>
@@ -399,6 +510,12 @@ function ClienteVista({ comercio }) {
               <h3 className="text-xl font-black text-white mt-2">Finalizar Pedido</h3>
               <p className="text-xs text-slate-400 font-medium">Estás a un paso de ordenar en {comercio.nombreComercio}.</p>
             </div>
+
+            {!enLinea && (
+              <div className="mb-4 bg-amber-500/15 border border-amber-500/40 text-amber-200 p-3 rounded-2xl text-xs text-center leading-relaxed">
+                📡 Se perdió la conexión a internet. El envío de pedidos se restablecerá hasta que vuelvas a tener conexión.
+              </div>
+            )}
 
             {pedidoEnviado ? (
               <div className="py-10 text-center space-y-3">
@@ -466,7 +583,17 @@ function ClienteVista({ comercio }) {
 
                 <div className="flex gap-3 pt-3">
                   <button type="button" onClick={() => setModalCheckout(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-3.5 rounded-2xl text-xs transition">Cancelar</button>
-                  <button type="submit" className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-2xl text-xs shadow-lg transition">Confirmar Pedido</button>
+                  <button
+                    type="submit"
+                    disabled={!enLinea}
+                    className={`flex-1 font-bold py-3.5 rounded-2xl text-xs transition ${
+                      enLinea
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg'
+                        : 'bg-slate-800 text-slate-400 border border-slate-700 cursor-not-allowed'
+                    }`}
+                  >
+                    {enLinea ? 'Confirmar Pedido' : 'Esperando conexión...'}
+                  </button>
                 </div>
               </form>
             )}

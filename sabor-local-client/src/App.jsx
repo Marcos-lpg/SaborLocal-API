@@ -11,12 +11,38 @@ function App() {
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [enLinea, setEnLinea] = useState(navigator.onLine);
+  const [avisoReconectado, setAvisoReconectado] = useState(false);
 
   // Estado de Autenticación y Roles: null (invitado/login), 'CLIENTE', 'NEGOCIO', 'SUPERADMIN'
-  const [sesion, setSesion] = useState(null);
+  const [sesion, setSesion] = useState(() => {
+    try {
+      const porPestana = sessionStorage.getItem('saborlocal_sesion_tab');
+      if (porPestana) return JSON.parse(porPestana);
+      if (!navigator.onLine) {
+        const respaldoOffline = localStorage.getItem('saborlocal_sesion_offline');
+        return respaldoOffline ? JSON.parse(respaldoOffline) : null;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
   const [vistaAuth, setVistaAuth] = useState('login'); // 'login', 'elegir-registro', 'reg-cliente', 'reg-negocio'
 
-  const [vistaActual, setVistaActual] = useState('home'); // 'home', 'clientemenu', 'historial', 'superadmin', 'restaurante'
+  const [vistaActual, setVistaActual] = useState(() => {
+    try {
+      const porPestana = sessionStorage.getItem('saborlocal_sesion_tab');
+      const guardada = porPestana || (!navigator.onLine ? localStorage.getItem('saborlocal_sesion_offline') : null);
+      if (!guardada) return 'home';
+      const parsed = JSON.parse(guardada);
+      if (parsed?.rol === 'SUPERADMIN') return 'superadmin';
+      if (parsed?.rol === 'NEGOCIO') return 'restaurante';
+      return 'home';
+    } catch {
+      return 'home';
+    }
+  });
   const [comercioSeleccionado, setComercioSeleccionado] = useState(null);
   const [busqueda, setBusqueda] = useState('');
 
@@ -26,15 +52,93 @@ function App() {
   const [loginError, setLoginError] = useState(null);
   const [cargandoLogin, setCargandoLogin] = useState(false);
 
+  useEffect(() => {
+    let timerReconexion;
+    const manejarOnline = () => {
+      setEnLinea(true);
+      setAvisoReconectado(true);
+      clearTimeout(timerReconexion);
+      timerReconexion = setTimeout(() => {
+        setAvisoReconectado(false);
+      }, 4500);
+    };
+    const manejarOffline = () => {
+      setEnLinea(false);
+      setAvisoReconectado(false);
+      clearTimeout(timerReconexion);
+    };
+
+    window.addEventListener('online', manejarOnline);
+    window.addEventListener('offline', manejarOffline);
+
+    return () => {
+      window.removeEventListener('online', manejarOnline);
+      window.removeEventListener('offline', manejarOffline);
+      clearTimeout(timerReconexion);
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (sesion) {
+        const json = JSON.stringify(sesion);
+        sessionStorage.setItem('saborlocal_sesion_tab', json);
+        localStorage.setItem('saborlocal_sesion_offline', json);
+      } else {
+        sessionStorage.removeItem('saborlocal_sesion_tab');
+      }
+    } catch (e) {
+      console.error('Error al persistir sesión:', e);
+    }
+  }, [sesion]);
+
+  const obtenerComerciosOffline = () => {
+    try {
+      const apiCache = JSON.parse(localStorage.getItem('cache_comercios_api') || '[]');
+      const dirOffline = JSON.parse(localStorage.getItem('directorio_offline') || '[]');
+      if (Array.isArray(apiCache) && apiCache.length > 0) {
+        return apiCache;
+      }
+      return Array.isArray(dirOffline) ? dirOffline : [];
+    } catch {
+      return [];
+    }
+  };
+
   const cargarComercios = () => {
+    const respaldoLocal = obtenerComerciosOffline();
+
+    if (!navigator.onLine) {
+      if (respaldoLocal.length > 0) {
+        setRestaurants(respaldoLocal);
+        setError(null);
+      } else {
+        setError("Sin conexión y sin comercios guardados previamente en este dispositivo.");
+      }
+      setLoading(false);
+      return;
+    }
+
     api.get('/comercios')
       .then(response => {
-        setRestaurants(response.data);
+        const lista = response.data || [];
+        setRestaurants(lista);
+        try {
+          localStorage.setItem('cache_comercios_api', JSON.stringify(lista));
+        } catch (e) {
+          console.error('Error al guardar comercios en caché:', e);
+        }
+        setError(null);
         setLoading(false);
       })
       .catch(err => {
         console.error("Error al conectar con la API:", err);
-        setError("No se pudo conectar con el servidor local o la ruta de la API.");
+        if (respaldoLocal.length > 0) {
+          setRestaurants(respaldoLocal);
+          setError(null);
+        } else {
+          setError("No se pudo conectar con el servidor local o la ruta de la API.");
+        }
         setLoading(false);
       });
   };
@@ -42,10 +146,12 @@ function App() {
   useEffect(() => {
     cargarComercios();
     const intervalo = setInterval(() => {
-      cargarComercios();
+      if (navigator.onLine) {
+        cargarComercios();
+      }
     }, 4000);
     return () => clearInterval(intervalo);
-  }, []);
+  }, [enLinea]);
 
   const activarSesionUsuario = (usuario, correoIngresado = '') => {
     if (!usuario) return false;
@@ -141,7 +247,7 @@ function App() {
         return;
       }
     } catch (err) {
-      // Si el backend responde 401/403, revisamos respaldo local antes de bloquear
+      // Si el backend responde 401/403 o no hay red, revisamos respaldo local antes de bloquear
       console.warn("Login backend no disponible o rechazado, probando respaldo local:", err?.message);
     }
 
@@ -198,6 +304,9 @@ function App() {
 
   const cerrarSesion = () => {
     setSesion(null);
+    sessionStorage.removeItem('saborlocal_sesion_tab');
+    localStorage.removeItem('saborlocal_sesion_offline');
+    localStorage.removeItem('saborlocal_sesion');
     setVistaAuth('login');
     setVistaActual('home');
     setComercioSeleccionado(null);
@@ -319,6 +428,36 @@ function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 pt-8 relative z-10">
+
+        {!enLinea && (
+          <div className="mb-6 bg-amber-500/15 border border-amber-500/40 text-amber-200 px-5 py-3.5 rounded-2xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            {sesion?.rol === 'NEGOCIO' || sesion?.rol === 'SUPERADMIN' ? (
+              <span>
+                📡 <strong>Sin conexión</strong>
+              </span>
+            ) : (
+              <span>
+                📡 <strong>Sin conexión a internet:</strong> Puedes consultar comercios y menús guardados. Los pedidos y actualizaciones en tiempo real se restablecerán hasta que vuelva la conexión.
+              </span>
+            )}
+            <span className="font-bold text-amber-300 whitespace-nowrap">Modo Offline</span>
+          </div>
+        )}
+
+        {enLinea && avisoReconectado && (
+          <div className="mb-6 bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 px-5 py-3.5 rounded-2xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            {sesion?.rol === 'NEGOCIO' || sesion?.rol === 'SUPERADMIN' ? (
+              <span>
+                🟢 <strong>De nuevo en línea</strong>
+              </span>
+            ) : (
+              <span>
+                🟢 <strong>De nuevo en línea:</strong> La conexión a internet se ha restablecido.
+              </span>
+            )}
+            <span className="font-bold text-emerald-300 whitespace-nowrap">En Línea</span>
+          </div>
+        )}
 
         {!sesion ? (
           <div className="max-w-md mx-auto py-8">
@@ -513,7 +652,7 @@ function App() {
                           <div>
                             <div className="h-28 bg-gradient-to-br from-purple-950/60 via-slate-900 to-[#121826] p-4 flex justify-between items-start relative overflow-hidden border-b border-slate-800">
                               <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-black px-3 py-1 rounded-full uppercase">
-                                ABIERTO
+                                {enLinea ? 'ABIERTO' : 'GUARDADO'}
                               </span>
                               <span className="bg-[#0b0f19] text-purple-300 text-[11px] font-bold px-3 py-1 rounded-full border border-slate-800">
                                 📍 Candelaria
@@ -533,7 +672,7 @@ function App() {
                           </div>
                           <div className="p-6 pt-0">
                             <div className="w-full bg-slate-800 group-hover:bg-purple-600 text-slate-200 group-hover:text-white font-bold py-3 rounded-2xl transition text-xs text-center border border-slate-700">
-                              Ver Menú y Comprar →
+                              {enLinea ? 'Ver Menú y Comprar →' : 'Ver Menú Guardado →'}
                             </div>
                           </div>
                         </div>
