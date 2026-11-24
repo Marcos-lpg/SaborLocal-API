@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import api from './ApiClient';
 
-function ClienteVista({ comercio }) {
+function ClienteVista({ comercio, servidorActivo = true }) {
   const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [carrito, setCarrito] = useState([]);
   const [modalCheckout, setModalCheckout] = useState(false);
-  const [enLinea, setEnLinea] = useState(navigator.onLine);
+
+  const enLinea = Boolean(servidorActivo) && navigator.onLine;
 
   const [nombreCliente, setNombreCliente] = useState('');
   const [telefonoCliente, setTelefonoCliente] = useState('');
@@ -23,19 +24,6 @@ function ClienteVista({ comercio }) {
 
   const [pedidoEnviado, setPedidoEnviado] = useState(false);
   const [misPedidos, setMisPedidos] = useState([]);
-
-  useEffect(() => {
-    const manejarOnline = () => setEnLinea(true);
-    const manejarOffline = () => setEnLinea(false);
-
-    window.addEventListener('online', manejarOnline);
-    window.addEventListener('offline', manejarOffline);
-
-    return () => {
-      window.removeEventListener('online', manejarOnline);
-      window.removeEventListener('offline', manejarOffline);
-    };
-  }, []);
 
   const guardarEnDirectorioOffline = (datosComercio, listaProductos) => {
     try {
@@ -75,7 +63,7 @@ function ClienteVista({ comercio }) {
       setLoading(true);
       const cacheGuardada = localStorage.getItem(`cache_menu_${comercio.id}`);
 
-      if (!navigator.onLine) {
+      if (!enLinea) {
         if (cacheGuardada) {
           setProductos(JSON.parse(cacheGuardada));
           setError(null);
@@ -87,12 +75,12 @@ function ClienteVista({ comercio }) {
       }
 
       try {
-        const res = await api.get(`/productos/comercio/${comercio.id}`);
+        const res = await api.get(`/productos/comercio/${comercio.id}`, { timeout: 2500 });
         let listaFinal = [];
         if (res.data && res.data.length > 0) {
           listaFinal = res.data;
         } else {
-          const resGeneral = await api.get('/productos');
+          const resGeneral = await api.get('/productos', { timeout: 2500 });
           listaFinal = resGeneral.data.filter(p => 
             p.tenantId === comercio.id || p.tenantId === 1 || !p.tenantId
           );
@@ -102,7 +90,7 @@ function ClienteVista({ comercio }) {
         setError(null);
       } catch (err) {
         try {
-          const resGeneral = await api.get('/productos');
+          const resGeneral = await api.get('/productos', { timeout: 2500 });
           setProductos(resGeneral.data);
           guardarEnDirectorioOffline(comercio, resGeneral.data);
           setError(null);
@@ -129,7 +117,7 @@ function ClienteVista({ comercio }) {
     const verificarEstatusPedidos = async () => {
       if (!telefonoCliente || !enLinea) return;
       try {
-        const res = await api.get('/pedidos');
+        const res = await api.get('/pedidos', { timeout: 2500 });
         const mios = (res.data || []).filter(p => 
           p.telefonoCliente === telefonoCliente && 
           p.tenantId === comercio.id &&
@@ -172,7 +160,6 @@ function ClienteVista({ comercio }) {
     return carrito.reduce((total, item) => total + (item.precio * item.cantidad), 0).toFixed(2);
   };
 
-  // Compresor inteligente de imagen para que quepa perfecto en la base de datos de C#/.NET
   const handleArchivoChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -240,8 +227,8 @@ function ClienteVista({ comercio }) {
 
   const realizarPedido = async (e) => {
     e.preventDefault();
-    if (!enLinea || !navigator.onLine) {
-      alert("Sin conexión a internet. Los pedidos en línea se restablecerán hasta que vuelvas a tener conexión.");
+    if (!enLinea) {
+      alert("Sin conexión con el servidor. Los pedidos en línea se restablecerán hasta que vuelva la conexión.");
       return;
     }
 
@@ -289,8 +276,6 @@ function ClienteVista({ comercio }) {
     };
 
     try {
-      console.log("Enviando pedido con comprobante comprimido...", pedidoPayload);
-
       const res = await api.post('/pedidos', pedidoPayload);
       guardarEnHistorial(pedidoPayload, res?.data);
 
@@ -309,7 +294,7 @@ function ClienteVista({ comercio }) {
 
     } catch (err) {
       console.error("Error al enviar el pedido:", err);
-      alert("Hubo un error al procesar tu pedido o perdiste la conexión. Los pedidos en línea se restablecerán cuando vuelva tu conexión.");
+      alert("Hubo un error al procesar tu pedido o se detuvo el servidor. Los pedidos en línea se restablecerán cuando vuelva la conexión.");
       setPedidoEnviado(false);
       setMensajeRevision(false);
     }
@@ -326,7 +311,7 @@ function ClienteVista({ comercio }) {
               <span>📡</span> Modo Sin Conexión (Directorio Offline Activo)
             </p>
             <p className="text-xs text-amber-100/90 leading-relaxed">
-              Estás consultando el menú y los datos guardados localmente. Los pedidos en línea y las actualizaciones de estado se restablecerán automáticamente hasta que vuelvas a tener conexión a internet.
+              Estás consultando el menú y los datos guardados localmente. Los pedidos en línea y las actualizaciones de estado se restablecerán automáticamente hasta que vuelva la conexión.
             </p>
           </div>
           <span className="text-[11px] font-bold bg-amber-500/20 border border-amber-500/30 px-3 py-1.5 rounded-xl text-amber-300 self-start sm:self-center whitespace-nowrap">
@@ -369,7 +354,7 @@ function ClienteVista({ comercio }) {
             </h3>
             {!enLinea && (
               <span className="text-[11px] text-amber-300 font-semibold">
-                ⏸️ En pausa sin red: se actualizará al volver la conexión
+                ⏸️ En pausa sin conexión: se actualizará al volver la conexión
               </span>
             )}
           </div>
@@ -479,7 +464,7 @@ function ClienteVista({ comercio }) {
 
                 {!enLinea && (
                   <div className="bg-amber-500/10 border border-amber-500/30 text-amber-200 p-3 rounded-2xl text-[11px] leading-relaxed">
-                    📡 Sin conexión a internet. Tu selección se conserva aquí, pero el envío de pedidos se restablecerá hasta que vuelvas a tener conexión. También puedes llamar al <span className="font-bold text-white">{comercio.telefono || comercio.telefonoComercio || "local"}</span>.
+                    📡 Sin conexión. Tu selección se conserva aquí, pero el envío de pedidos se restablecerá hasta que vuelva la conexión. También puedes llamar al <span className="font-bold text-white">{comercio.telefono || comercio.telefonoComercio || "local"}</span>.
                   </div>
                 )}
 
@@ -513,7 +498,7 @@ function ClienteVista({ comercio }) {
 
             {!enLinea && (
               <div className="mb-4 bg-amber-500/15 border border-amber-500/40 text-amber-200 p-3 rounded-2xl text-xs text-center leading-relaxed">
-                📡 Se perdió la conexión a internet. El envío de pedidos se restablecerá hasta que vuelvas a tener conexión.
+                📡 Se perdió la conexión. El envío de pedidos se restablecerá hasta que vuelva la conexión.
               </div>
             )}
 

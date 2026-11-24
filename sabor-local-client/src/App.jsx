@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from './ApiClient';
 import RegistroRestaurante from './RegistroRestaurante';
 import RegistroCliente from './RegistroCliente';
@@ -11,29 +11,29 @@ function App() {
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [enLinea, setEnLinea] = useState(navigator.onLine);
+  const [enLinea, setEnLinea] = useState(true);
   const [avisoReconectado, setAvisoReconectado] = useState(false);
+
+  const estadoPrevioRef = useRef(true);
+  const timerReconexionRef = useRef(null);
 
   // Estado de Autenticación y Roles: null (invitado/login), 'CLIENTE', 'NEGOCIO', 'SUPERADMIN'
   const [sesion, setSesion] = useState(() => {
     try {
       const porPestana = sessionStorage.getItem('saborlocal_sesion_tab');
       if (porPestana) return JSON.parse(porPestana);
-      if (!navigator.onLine) {
-        const respaldoOffline = localStorage.getItem('saborlocal_sesion_offline');
-        return respaldoOffline ? JSON.parse(respaldoOffline) : null;
-      }
-      return null;
+      const respaldoOffline = localStorage.getItem('saborlocal_sesion_offline');
+      return respaldoOffline ? JSON.parse(respaldoOffline) : null;
     } catch {
       return null;
     }
   });
-  const [vistaAuth, setVistaAuth] = useState('login'); // 'login', 'elegir-registro', 'reg-cliente', 'reg-negocio'
+  const [vistaAuth, setVistaAuth] = useState('login');
 
   const [vistaActual, setVistaActual] = useState(() => {
     try {
       const porPestana = sessionStorage.getItem('saborlocal_sesion_tab');
-      const guardada = porPestana || (!navigator.onLine ? localStorage.getItem('saborlocal_sesion_offline') : null);
+      const guardada = porPestana || localStorage.getItem('saborlocal_sesion_offline');
       if (!guardada) return 'home';
       const parsed = JSON.parse(guardada);
       if (parsed?.rol === 'SUPERADMIN') return 'superadmin';
@@ -52,31 +52,24 @@ function App() {
   const [loginError, setLoginError] = useState(null);
   const [cargandoLogin, setCargandoLogin] = useState(false);
 
-  useEffect(() => {
-    let timerReconexion;
-    const manejarOnline = () => {
+  const actualizarEstadoConexion = (conectadoAlServidor) => {
+    if (conectadoAlServidor) {
+      if (!estadoPrevioRef.current) {
+        setAvisoReconectado(true);
+        clearTimeout(timerReconexionRef.current);
+        timerReconexionRef.current = setTimeout(() => {
+          setAvisoReconectado(false);
+        }, 4500);
+      }
+      estadoPrevioRef.current = true;
       setEnLinea(true);
-      setAvisoReconectado(true);
-      clearTimeout(timerReconexion);
-      timerReconexion = setTimeout(() => {
-        setAvisoReconectado(false);
-      }, 4500);
-    };
-    const manejarOffline = () => {
+    } else {
+      estadoPrevioRef.current = false;
       setEnLinea(false);
       setAvisoReconectado(false);
-      clearTimeout(timerReconexion);
-    };
-
-    window.addEventListener('online', manejarOnline);
-    window.addEventListener('offline', manejarOffline);
-
-    return () => {
-      window.removeEventListener('online', manejarOnline);
-      window.removeEventListener('offline', manejarOffline);
-      clearTimeout(timerReconexion);
-    };
-  }, []);
+      clearTimeout(timerReconexionRef.current);
+    }
+  };
 
   useEffect(() => {
     try {
@@ -109,6 +102,7 @@ function App() {
     const respaldoLocal = obtenerComerciosOffline();
 
     if (!navigator.onLine) {
+      actualizarEstadoConexion(false);
       if (respaldoLocal.length > 0) {
         setRestaurants(respaldoLocal);
         setError(null);
@@ -119,8 +113,9 @@ function App() {
       return;
     }
 
-    api.get('/comercios')
+    api.get('/comercios', { timeout: 2500 })
       .then(response => {
+        actualizarEstadoConexion(true);
         const lista = response.data || [];
         setRestaurants(lista);
         try {
@@ -131,27 +126,37 @@ function App() {
         setError(null);
         setLoading(false);
       })
-      .catch(err => {
-        console.error("Error al conectar con la API:", err);
+      .catch(() => {
+        actualizarEstadoConexion(false);
         if (respaldoLocal.length > 0) {
           setRestaurants(respaldoLocal);
           setError(null);
         } else {
-          setError("No se pudo conectar con el servidor local o la ruta de la API.");
+          setError("Servidor detenido y sin comercios guardados previamente en este dispositivo.");
         }
         setLoading(false);
       });
   };
 
   useEffect(() => {
+    const manejarOfflineNavegador = () => actualizarEstadoConexion(false);
+    const manejarOnlineNavegador = () => cargarComercios();
+
+    window.addEventListener('offline', manejarOfflineNavegador);
+    window.addEventListener('online', manejarOnlineNavegador);
+
     cargarComercios();
     const intervalo = setInterval(() => {
-      if (navigator.onLine) {
-        cargarComercios();
-      }
-    }, 4000);
-    return () => clearInterval(intervalo);
-  }, [enLinea]);
+      cargarComercios();
+    }, 3000);
+
+    return () => {
+      window.removeEventListener('offline', manejarOfflineNavegador);
+      window.removeEventListener('online', manejarOnlineNavegador);
+      clearInterval(intervalo);
+      clearTimeout(timerReconexionRef.current);
+    };
+  }, []);
 
   const activarSesionUsuario = (usuario, correoIngresado = '') => {
     if (!usuario) return false;
@@ -159,7 +164,6 @@ function App() {
     const rolRaw = String(usuario.rol || usuario.Rol || '').toUpperCase().trim();
     const correoRaw = String(usuario.correo || usuario.Correo || correoIngresado || '').toLowerCase().trim();
 
-    // 1. Super Admin
     if (rolRaw.includes('SUPERADMIN') || rolRaw === 'SUPER_ADMIN') {
       setSesion({
         rol: 'SUPERADMIN',
@@ -169,7 +173,6 @@ function App() {
       return true;
     }
 
-    // 2. Negocio / Restaurante (solo si explícitamente es negocio/restaurante o tiene comercioId/ADMIN_RESTAURANT)
     if (
       rolRaw.includes('NEGOCIO') ||
       rolRaw.includes('RESTAURANT') ||
@@ -186,7 +189,6 @@ function App() {
       return true;
     }
 
-    // 3. Cliente (o cualquier usuario normal sin comercioId que no sea superadmin)
     if (rolRaw.includes('CLIENTE') || rolRaw === 'USER' || rolRaw === 'USUARIO' || rolRaw === '') {
       const tel = usuario.telefono || usuario.Telefono;
       if (tel) {
@@ -201,7 +203,6 @@ function App() {
       return true;
     }
 
-    // 4. Si el rol es ADMIN genérico sin comercio, mandarlo a SUPERADMIN
     if (rolRaw.includes('ADMIN')) {
       setSesion({
         rol: 'SUPERADMIN',
@@ -221,7 +222,6 @@ function App() {
 
     const emailLower = loginEmail.toLowerCase().trim();
 
-    // 1. Super Admin directo por correo/contraseña
     if ((emailLower.includes('admin') || emailLower.includes('superadmin')) && loginPassword === 'Admin123*') {
       setSesion({ rol: 'SUPERADMIN', nombre: 'Super Administrador' });
       setVistaActual('superadmin');
@@ -229,7 +229,6 @@ function App() {
       return;
     }
 
-    // 2. Intentar validar en Backend API
     try {
       const response = await api.post('/auth/login', {
         correo: emailLower,
@@ -247,11 +246,9 @@ function App() {
         return;
       }
     } catch (err) {
-      // Si el backend responde 401/403 o no hay red, revisamos respaldo local antes de bloquear
       console.warn("Login backend no disponible o rechazado, probando respaldo local:", err?.message);
     }
 
-    // 3. Respaldo en localStorage: Negocios
     const comerciosLocales = JSON.parse(localStorage.getItem('comercios_registrados') || '[]');
     const comercioEnLocal = comerciosLocales.find(
       c => (c.correoDuenio || c.correo || '').toLowerCase().trim() === emailLower
@@ -273,7 +270,6 @@ function App() {
       return;
     }
 
-    // 4. Respaldo en localStorage: Clientes
     const clientesVerificados = JSON.parse(localStorage.getItem('clientes_verificados') || '[]');
     const clienteEncontrado = clientesVerificados.find(
       cli => (cli.correo || '').toLowerCase().trim() === emailLower
@@ -437,7 +433,7 @@ function App() {
               </span>
             ) : (
               <span>
-                📡 <strong>Sin conexión a internet:</strong> Puedes consultar comercios y menús guardados. Los pedidos y actualizaciones en tiempo real se restablecerán hasta que vuelva la conexión.
+                📡 <strong>Sin conexión:</strong> Puedes consultar comercios y menús guardados. Los pedidos y actualizaciones en tiempo real se restablecerán hasta que vuelva la conexión.
               </span>
             )}
             <span className="font-bold text-amber-300 whitespace-nowrap">Modo Offline</span>
@@ -452,7 +448,7 @@ function App() {
               </span>
             ) : (
               <span>
-                🟢 <strong>De nuevo en línea:</strong> La conexión a internet se ha restablecido.
+                🟢 <strong>De nuevo en línea:</strong> La conexión con el servidor se ha restablecido.
               </span>
             )}
             <span className="font-bold text-emerald-300 whitespace-nowrap">En Línea</span>
@@ -608,7 +604,7 @@ function App() {
                   >
                     ← Volver al listado de comercios
                   </button>
-                  <ClienteVista comercio={comercioSeleccionado} />
+                  <ClienteVista comercio={comercioSeleccionado} servidorActivo={enLinea} />
                 </div>
               ) : (
                 <div className="space-y-8">
