@@ -44,6 +44,13 @@ namespace SaborLocal.API.Models
         [Column(TypeName = "text")]
         public string? ImagenComprobante { get; set; }
 
+        public DateTime? FechaCompletado { get; set; }
+
+        public int? Calificacion { get; set; }
+
+        [Column(TypeName = "text")]
+        public string? ComentarioCalificacion { get; set; }
+
         public List<DetallePedido> Detalles { get; set; } = new();
     }
 }

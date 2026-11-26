@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import api from './ApiClient';
 
-function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver }) {
+function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver, onCalificacionGuardada }) {
   const [historial, setHistorial] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [pedidoDetalle, setPedidoDetalle] = useState(null);
+  const [calificacionesForm, setCalificacionesForm] = useState({});
+  const [enviandoId, setEnviandoId] = useState(null);
 
   const cargarHistorial = async () => {
     setLoading(true);
@@ -84,6 +86,8 @@ function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver }
           total: p.total ?? previo.total ?? 0,
           estado: p.estado || previo.estado || 'RECIBIDO',
           fechaCreacion: p.fechaCreacion || previo.fechaCreacion || new Date().toISOString(),
+          calificacion: p.calificacion ?? previo.calificacion ?? null,
+          comentarioCalificacion: p.comentarioCalificacion ?? previo.comentarioCalificacion ?? '',
           detalles: p.detalles || previo.detalles || []
         });
       });
@@ -118,6 +122,36 @@ function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver }
   useEffect(() => {
     cargarHistorial();
   }, [comercios]);
+
+  const enviarCalificacionHistorial = async (pedidoId) => {
+    const estrellas = calificacionesForm[pedidoId]?.estrellas || 0;
+    const comentario = calificacionesForm[pedidoId]?.comentario || '';
+    if (!estrellas) {
+      alert('Selecciona de 1 a 5 estrellas.');
+      return;
+    }
+
+    setEnviandoId(pedidoId);
+    try {
+      await api.put(`/pedidos/${pedidoId}/calificar`, {
+        calificacion: estrellas,
+        comentario
+      });
+      setHistorial((prev) =>
+        prev.map((item) =>
+          item.pedidoId === pedidoId
+            ? { ...item, calificacion: estrellas, comentarioCalificacion: comentario }
+            : item
+        )
+      );
+      if (onCalificacionGuardada) onCalificacionGuardada();
+    } catch (err) {
+      console.error('Error al calificar desde historial:', err);
+      alert('No se pudo guardar tu calificación en el servidor.');
+    } finally {
+      setEnviandoId(null);
+    }
+  };
 
   const historialFiltrado = historial.filter((item) =>
     (item.nombreComercio || '').toLowerCase().includes(busqueda.toLowerCase())
@@ -270,6 +304,52 @@ function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver }
                     ${Number(item.total || 0).toFixed(2)} MXN
                   </span>
                 </div>
+
+                {item.estado === 'COMPLETADO' && typeof item.pedidoId === 'number' && (
+                  <div className="pt-1">
+                    {item.calificacion ? (
+                      <div className="bg-emerald-500/15 border border-emerald-400/35 rounded-xl px-3 py-2 text-[11px] text-emerald-300 font-bold flex items-center justify-between">
+                        <span>Tu calificación:</span>
+                        <span className="text-amber-300">
+                          {'★'.repeat(item.calificacion)}{'☆'.repeat(5 - item.calificacion)} ({item.calificacion}/5)
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="bg-[#070e14] border border-amber-400/35 rounded-xl p-3 space-y-2">
+                        <p className="text-[11px] font-black text-amber-200">⭐ Califica este pedido:</p>
+                        <div className="flex items-center gap-1">
+                          {[1, 2, 3, 4, 5].map((num) => (
+                            <button
+                              key={num}
+                              type="button"
+                              onClick={() =>
+                                setCalificacionesForm((prev) => ({
+                                  ...prev,
+                                  [item.pedidoId]: { ...(prev[item.pedidoId] || {}), estrellas: num }
+                                }))
+                              }
+                              className={`text-xl cursor-pointer transition hover:scale-110 ${
+                                num <= (calificacionesForm[item.pedidoId]?.estrellas || 0)
+                                  ? 'text-amber-400'
+                                  : 'text-slate-600'
+                              }`}
+                            >
+                              ★
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={enviandoId === item.pedidoId || !(calificacionesForm[item.pedidoId]?.estrellas)}
+                          onClick={() => enviarCalificacionHistorial(item.pedidoId)}
+                          className="neon-btn-orange w-full disabled:opacity-40 text-white font-black py-1.5 rounded-full text-[11px] transition cursor-pointer"
+                        >
+                          {enviandoId === item.pedidoId ? 'Enviando...' : 'Enviar Calificación ⭐'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2.5 pt-1">

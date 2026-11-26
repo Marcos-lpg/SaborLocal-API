@@ -8,6 +8,7 @@ function VerificacionCodigo({ correo, tipoRegistro, onVerificado, onCancelar }) 
   const [reenviando, setReenviando] = useState(false);
   const [error, setError] = useState(null);
   const [mensaje, setMensaje] = useState(null);
+  const [codigoVisible, setCodigoVisible] = useState(null); // Solo en modo desarrollo
   const inputsRef = useRef([]);
 
   // Enviar el código automáticamente al cargar la pantalla
@@ -24,12 +25,14 @@ function VerificacionCodigo({ correo, tipoRegistro, onVerificado, onCancelar }) 
       const res = await api.post('/auth/enviar-codigo', { correo });
       if (res.data?.codigoDebug) {
         setCodigoEsperado(res.data.codigoDebug);
+        setCodigoVisible(res.data.codigoDebug); // Mostrar en pantalla si es modo dev
       }
       setMensaje(`✉️ Código enviado con éxito. Revisa tu correo (${correo}).`);
     } catch (err) {
       // Respaldo interno silencioso (sin mostrar la consola en pantalla)
       const codigoSimulado = Math.floor(100000 + Math.random() * 900000).toString();
       setCodigoEsperado(codigoSimulado);
+      setCodigoVisible(codigoSimulado); // Mostrar en pantalla como fallback
       setMensaje(`✉️ Código enviado con éxito. Revisa tu correo (${correo}).`);
     } finally {
       setReenviando(false);
@@ -109,6 +112,16 @@ function VerificacionCodigo({ correo, tipoRegistro, onVerificado, onCancelar }) 
       {mensaje && (
         <div className="bg-purple-500/10 border border-purple-500/30 text-purple-300 p-3 rounded-2xl text-center text-[11px] font-semibold">
           {mensaje}
+        </div>
+      )}
+
+      {/* Bloque visible solo en modo desarrollo cuando no hay correo real configurado */}
+      {codigoVisible && (
+        <div className="bg-amber-500/10 border border-amber-400/40 text-amber-300 p-3 rounded-2xl text-center space-y-1">
+          <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">🛠 Modo Desarrollo</p>
+          <p className="text-[11px]">Tu código de verificación es:</p>
+          <p className="text-3xl font-black tracking-[0.3em] text-amber-300">{codigoVisible}</p>
+          <p className="text-[9px] opacity-60">Este mensaje solo aparece porque el correo no está configurado</p>
         </div>
       )}
 

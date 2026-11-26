@@ -762,6 +762,7 @@ function App() {
                     setVistaActual('clientemenu');
                   }}
                   onVolver={() => setVistaActual('home')}
+                  onCalificacionGuardada={cargarComercios}
                 />
               ) : vistaActual === 'clientemenu' && comercioSeleccionado ? (
                 <div className="space-y-4">
@@ -773,10 +774,11 @@ function App() {
                     ← Volver a comercios
                   </button>
                   <ClienteVista
-                    comercio={comercioSeleccionado}
+                    comercio={restaurants.find(r => r.id === comercioSeleccionado.id) || comercioSeleccionado}
                     servidorActivo={enLinea}
                     onPerderConexion={() => actualizarEstadoConexion(false)}
                     onRecuperarConexion={() => cargarComercios()}
+                    onCalificacionGuardada={cargarComercios}
                   />
                 </div>
               ) : (
@@ -846,57 +848,104 @@ function App() {
                     <p className="text-center text-xs text-amber-300 py-8">{error}</p>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {restaurantesFiltrados.map((resto) => (
-                        <div
-                          key={resto.id}
-                          onClick={() => { setComercioSeleccionado(resto); setVistaActual('clientemenu'); }}
-                          className="neon-amber-card bg-gradient-to-b from-[#152736] to-[#0c1822] rounded-2xl p-4 transition cursor-pointer flex flex-col justify-between gap-3.5 group"
-                        >
-                          <div className="space-y-2.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="bg-emerald-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded-md uppercase tracking-wide shadow-[0_0_12px_rgba(16,185,129,0.65)]">
-                                {enLinea ? 'ABIERTO' : 'GUARDADO'}
-                              </span>
-                              <span className="bg-[#1f3548] text-amber-200 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-amber-400/25">
-                                📍 {resto.categoria || 'Candelaria'}
-                              </span>
+                      {restaurantesFiltrados.map((resto) => {
+                        const abierto = resto.estaAbierto !== false;
+                        const envioGratis = resto.envioGratis !== false || !(Number(resto.costoEnvio) > 0);
+                        const costoEnvio = Number(resto.costoEnvio || 0);
+                        const promedio = Number(resto.calificacionPromedio || 0);
+                        const totalResenas = Number(resto.totalCalificaciones || 0);
+
+                        return (
+                          <div
+                            key={resto.id}
+                            onClick={() => { setComercioSeleccionado(resto); setVistaActual('clientemenu'); }}
+                            className="neon-amber-card bg-gradient-to-b from-[#152736] to-[#0c1822] rounded-2xl p-4 transition cursor-pointer flex flex-col justify-between gap-3.5 group"
+                          >
+                            <div className="space-y-2.5">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                {enLinea ? (
+                                  <span className={`text-white text-[10px] font-black px-2.5 py-0.5 rounded-md uppercase tracking-wide ${
+                                    abierto
+                                      ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.65)]'
+                                      : 'bg-red-600 shadow-[0_0_12px_rgba(220,38,38,0.55)]'
+                                  }`}>
+                                    {abierto ? '🟢 ABIERTO' : '🔴 CERRADO'}
+                                  </span>
+                                ) : (
+                                  <span className="bg-amber-500 text-slate-950 text-[10px] font-black px-2.5 py-0.5 rounded-md uppercase tracking-wide">
+                                    GUARDADO
+                                  </span>
+                                )}
+                                <span className="bg-[#070e14] text-amber-300 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-amber-400/35">
+                                  ⭐ {totalResenas > 0 ? `${promedio.toFixed(1)} (${totalResenas})` : 'Nuevo'}
+                                </span>
+                              </div>
+
+                              <div className="icon-3d-pod h-32 w-full rounded-xl overflow-hidden relative">
+                                <img
+                                  src={
+                                    resto.imagenUrl ||
+                                    resto.fotoUrl ||
+                                    "https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=600&q=80"
+                                  }
+                                  alt={resto.nombreComercio}
+                                  className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                  }}
+                                />
+                                <span className="absolute top-2 right-2 bg-[#070e14]/85 text-amber-200 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-amber-400/30">
+                                  📍 {resto.categoria || 'Candelaria'}
+                                </span>
+                              </div>
+
+                              <div className="flex items-end gap-3 -mt-7 px-1 relative z-10">
+                                <div className="w-14 h-14 rounded-full bg-[#070e14] border-2 border-amber-400/80 shadow-xl overflow-hidden flex items-center justify-center shrink-0">
+                                  {resto.logoUrl ? (
+                                    <img src={resto.logoUrl} alt={`Logo ${resto.nombreComercio}`} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <span className="text-2xl">🍔</span>
+                                  )}
+                                </div>
+                                <div className="pt-6 min-w-0">
+                                  <h3 className="text-lg font-black text-white group-hover:text-amber-300 transition truncate">
+                                    {resto.nombreComercio}
+                                  </h3>
+                                  <p className="text-[11px] text-amber-200/85 font-semibold truncate">
+                                    🍔 {resto.categoria || 'Comida Local'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1 text-[11px] text-slate-300">
+                                <p className="truncate">📍 {resto.direccion || "Calle 8 Guanajuato entre 29 y 31"}</p>
+                                <p className="truncate text-amber-100/90 font-semibold">
+                                  🕒 {resto.horarioAtencion || "Lun - Dom: 9:00 AM - 10:00 PM"}
+                                </p>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2 pt-0.5 text-[10px] font-extrabold">
+                                <span className="bg-[#070e14] text-slate-200 border border-white/15 px-2.5 py-1 rounded-full">
+                                  ⏱️ {resto.tiempoPreparacion || "25-40 min"}
+                                </span>
+                                <span className={`px-2.5 py-1 rounded-full border ${
+                                  envioGratis
+                                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/35'
+                                    : 'bg-orange-500/15 text-orange-300 border-orange-400/35'
+                                }`}>
+                                  🛵 {envioGratis ? 'Envío gratis' : `Envío $${costoEnvio.toFixed(2)}`}
+                                </span>
+                              </div>
                             </div>
 
-                            <div className="icon-3d-pod h-32 w-full rounded-xl overflow-hidden relative">
-                              <img
-                                src={
-                                  resto.imagenUrl ||
-                                  resto.fotoUrl ||
-                                  "https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=600&q=80"
-                                }
-                                alt={resto.nombreComercio}
-                                className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                                onError={(e) => {
-                                  e.currentTarget.style.display = 'none';
-                                }}
-                              />
-                            </div>
-
-                            <div>
-                              <h3 className="text-lg font-black text-white group-hover:text-amber-300 transition truncate">
-                                {resto.nombreComercio}
-                              </h3>
-                              <p className="text-[11px] text-amber-200/85 font-semibold mt-0.5">
-                                🍔 {resto.categoria || 'Comida Local'}
-                              </p>
-                              <p className="text-[11px] text-slate-300 truncate mt-1">
-                                📍 {resto.direccion || "Calle 8 Guanajuato entre 29 y 31"}
-                              </p>
+                            <div className="pt-1">
+                              <span className="neon-btn-orange w-full inline-flex items-center justify-center gap-1.5 text-white text-xs font-black py-2.5 rounded-full transition">
+                                {!enLinea ? 'Ver Menú Guardado →' : abierto ? 'Ver Menú →' : 'Cerrado (Ver Menú) →'}
+                              </span>
                             </div>
                           </div>
-
-                          <div className="pt-1">
-                            <span className="neon-btn-orange w-full inline-flex items-center justify-center gap-1.5 text-white text-xs font-black py-2.5 rounded-full transition">
-                              Ver Menú →
-                            </span>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 

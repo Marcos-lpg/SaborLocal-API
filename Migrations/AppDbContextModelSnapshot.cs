@@ -30,6 +30,9 @@ namespace SaborLocal.API.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<double>("CalificacionPromedio")
+                        .HasColumnType("double precision");
+
                     b.Property<string>("Categoria")
                         .IsRequired()
                         .HasColumnType("text");
@@ -42,9 +45,18 @@ namespace SaborLocal.API.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<decimal>("CostoEnvio")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("Direccion")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<bool>("EnvioGratis")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("EstaAbierto")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Estado")
                         .IsRequired()
@@ -52,6 +64,13 @@ namespace SaborLocal.API.Migrations
 
                     b.Property<DateTime>("FechaCreacion")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("HorarioAtencion")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("LogoUrl")
+                        .HasColumnType("text");
 
                     b.Property<string>("MetodosPago")
                         .IsRequired()
@@ -72,6 +91,16 @@ namespace SaborLocal.API.Migrations
                     b.Property<string>("TelefonoComercio")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("TiempoPreparacion")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("TotalCalificaciones")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UltimoCierreCaja")
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
@@ -114,12 +143,18 @@ namespace SaborLocal.API.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("Calificacion")
+                        .HasColumnType("integer");
+
                     b.Property<string>("CambioPara")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<string>("ClienteNombre")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ComentarioCalificacion")
                         .HasColumnType("text");
 
                     b.Property<string>("Comprobante")
@@ -135,6 +170,9 @@ namespace SaborLocal.API.Migrations
                     b.Property<string>("Estado")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("FechaCompletado")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("FechaCreacion")
                         .HasColumnType("timestamp with time zone");

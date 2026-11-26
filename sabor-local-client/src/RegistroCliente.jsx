@@ -47,6 +47,7 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
       clientesVerificados.push({
         correo: emailLower,
         nombreCompleto: formData.nombreCompleto,
+        telefono: formData.telefono,
         contrasena: formData.contrasena
       });
       localStorage.setItem('clientes_verificados', JSON.stringify(clientesVerificados));

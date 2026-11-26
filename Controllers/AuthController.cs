@@ -38,9 +38,16 @@ namespace SaborLocalAPI.Controllers
                 string apiKey = _configuration["EmailSettings:ApiKey"] ?? _configuration["BrevoApiKey"] ?? "";
                 string senderEmail = _configuration["EmailSettings:SenderEmail"] ?? "982116537alopez@gmail.com";
 
+                // Si no hay API Key real configurada, modo desarrollo: devolver código directamente
                 if (string.IsNullOrEmpty(apiKey) || apiKey.Contains("TU_API_KEY"))
                 {
-                    return StatusCode(500, new { error = "La API Key de Brevo no está configurada correctamente en appsettings.json." });
+                    Console.WriteLine($"[DEV MODE] Código OTP para {emailLimpio}: {codigo}");
+                    return Ok(new
+                    {
+                        mensaje = $"Código enviado con éxito a {emailLimpio}.",
+                        codigoDebug = codigo,  // Frontend lo usa para verificar sin correo real
+                        modoDesarrollo = true
+                    });
                 }
 
                 // Estructura del correo que se enviará alfanuméricamente al correo ingresado en el registro
@@ -124,7 +131,7 @@ namespace SaborLocalAPI.Controllers
                 {
                     return Unauthorized(new { error = "Contraseña incorrecta." });
                 }
-                return Ok(new { token = "jwt-token-valido", usuario = new { rol = usuario.Rol, nombre = usuario.Nombre, correo = usuario.Correo, comercioId = usuario.ComercioId } });
+                return Ok(new { token = "jwt-token-valido", usuario = new { rol = usuario.Rol, nombre = usuario.Nombre, correo = usuario.Correo, telefono = usuario.Telefono, comercioId = usuario.ComercioId } });
             }
 
             return Unauthorized(new { error = "Usuario no encontrado." });

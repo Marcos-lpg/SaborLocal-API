@@ -32,6 +32,18 @@ namespace SaborLocal.API.Controllers
             return await _context.Comercios.ToListAsync();
         }
 
+        // GET: api/comercios/5 (Obtiene el detalle actualizado de un comercio específico)
+        [HttpGet("{id}")]
+        public async Task<ActionResult<Comercio>> GetComercioPorId(int id)
+        {
+            var comercio = await _context.Comercios.FindAsync(id);
+            if (comercio == null)
+            {
+                return NotFound("Comercio no encontrado.");
+            }
+            return comercio;
+        }
+
         // POST: api/comercios/solicitud (Registro completo con Categoria libre en estado PENDIENTE)
         [HttpPost("solicitud")]
         public async Task<IActionResult> RegistrarSolicitud([FromBody] RegistroRestauranteDto dto)
@@ -95,6 +107,76 @@ namespace SaborLocal.API.Controllers
             return Ok(new { mensaje = $"Estado actualizado a {dto.Estado} exitosamente." });
         }
 
+        // PUT: api/comercios/5/caja (Abrir o cerrar caja / iniciar ventas o cerrar día)
+        [HttpPut("{id}/caja")]
+        public async Task<IActionResult> ActualizarEstadoCaja(int id, [FromBody] CajaDto dto)
+        {
+            var comercio = await _context.Comercios.FindAsync(id);
+            if (comercio == null)
+            {
+                return NotFound("Comercio no encontrado.");
+            }
+
+            comercio.EstaAbierto = dto.EstaAbierto;
+            if (!dto.EstaAbierto)
+            {
+                comercio.UltimoCierreCaja = DateTime.UtcNow;
+            }
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                mensaje = dto.EstaAbierto
+                    ? "Ventas iniciadas. Tu restaurante ahora aparece Abierto para los clientes."
+                    : "Caja cerrada. Tu restaurante ahora aparece Cerrado y las ventas del turno se reiniciaron.",
+                estaAbierto = comercio.EstaAbierto,
+                ultimoCierreCaja = comercio.UltimoCierreCaja
+            });
+        }
+
+        // PUT: api/comercios/5/configuracion (Actualiza horario, tiempo de preparación, envío y logo)
+        [HttpPut("{id}/configuracion")]
+        public async Task<IActionResult> ActualizarConfiguracionComercio(int id, [FromBody] ConfiguracionComercioDto dto)
+        {
+            var comercio = await _context.Comercios.FindAsync(id);
+            if (comercio == null)
+            {
+                return NotFound("Comercio no encontrado.");
+            }
+
+            if (dto.CostoEnvio < 0)
+            {
+                return BadRequest("El costo de envío no puede ser negativo.");
+            }
+
+            if (dto.HorarioAtencion != null)
+            {
+                comercio.HorarioAtencion = dto.HorarioAtencion.Trim();
+            }
+
+            if (dto.TiempoPreparacion != null)
+            {
+                comercio.TiempoPreparacion = dto.TiempoPreparacion.Trim();
+            }
+
+            comercio.EnvioGratis = dto.EnvioGratis;
+            comercio.CostoEnvio = dto.EnvioGratis ? 0m : dto.CostoEnvio;
+
+            if (dto.LogoUrl != null)
+            {
+                comercio.LogoUrl = string.IsNullOrWhiteSpace(dto.LogoUrl) ? null : dto.LogoUrl;
+            }
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                mensaje = "Configuración del restaurante actualizada correctamente.",
+                comercio
+            });
+        }
+
         // DELETE: api/comercios/5 (Elimina comercio y sus usuarios asociados)
         [HttpDelete("{id}")]
         public async Task<IActionResult> EliminarComercio(int id)
@@ -131,5 +213,19 @@ namespace SaborLocal.API.Controllers
     public class EstadoDto
     {
         public string Estado { get; set; } = string.Empty;
+    }
+
+    public class CajaDto
+    {
+        public bool EstaAbierto { get; set; }
+    }
+
+    public class ConfiguracionComercioDto
+    {
+        public string? HorarioAtencion { get; set; }
+        public string? TiempoPreparacion { get; set; }
+        public bool EnvioGratis { get; set; } = true;
+        public decimal CostoEnvio { get; set; } = 0m;
+        public string? LogoUrl { get; set; }
     }
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from './ApiClient';
 
 function PanelRestaurante({ comercioId = 1, nombreComercio = "Mi Negocio", correoNegocio = "" }) {
@@ -22,6 +22,29 @@ function PanelRestaurante({ comercioId = 1, nombreComercio = "Mi Negocio", corre
     numeroCuenta: '',
     titular: ''
   });
+
+  // Estado de caja (Abierto / Cerrado) y métricas del comercio
+  const [estaAbierto, setEstaAbierto] = useState(true);
+  const [ultimoCierreCaja, setUltimoCierreCaja] = useState(null);
+  const [cambiandoCaja, setCambiandoCaja] = useState(false);
+  const [calificacionStats, setCalificacionStats] = useState({ promedio: 0, total: 0 });
+
+  // Configuración del perfil del restaurante (Logo, Horarios, Tiempo de preparación, Envío)
+  const [configRestaurante, setConfigRestaurante] = useState({
+    horarioAtencion: 'Lun - Dom: 9:00 AM - 10:00 PM',
+    tiempoPreparacion: '25-40 min',
+    envioGratis: true,
+    costoEnvio: '0',
+    logoUrl: ''
+  });
+  const [procesandoLogo, setProcesandoLogo] = useState(false);
+  const [guardandoConfig, setGuardandoConfig] = useState(false);
+  const configCargadaRef = useRef(false);
+
+  const mostrarMensaje = (texto) => {
+    setMensaje(texto);
+    setTimeout(() => setMensaje(null), 4500);
+  };
 
   useEffect(() => {
     setTituloNegocio(nombreComercio || "Mi Negocio");
@@ -81,6 +104,7 @@ function PanelRestaurante({ comercioId = 1, nombreComercio = "Mi Negocio", corre
   }, [idReal, correoNegocio]);
 
   useEffect(() => {
+    configCargadaRef.current = false;
     const bancoGuardado = localStorage.getItem(`banco_${idReal}`);
     if (bancoGuardado) {
       setDatosBanco(JSON.parse(bancoGuardado));
@@ -90,12 +114,39 @@ function PanelRestaurante({ comercioId = 1, nombreComercio = "Mi Negocio", corre
   const guardarDatosBanco = (e) => {
     e.preventDefault();
     localStorage.setItem(`banco_${idReal}`, JSON.stringify(datosBanco));
-    setMensaje("🏦 Datos bancarios actualizados correctamente para tus clientes.");
-    setTimeout(() => setMensaje(null), 4000);
+    mostrarMensaje("🏦 Datos bancarios actualizados correctamente para tus clientes.");
   };
 
   const cargarDatosRestaurante = async () => {
     try {
+      try {
+        const resCom = await api.get(`/comercios/${idReal}`);
+        const com = resCom.data;
+        if (com) {
+          if (com.nombreComercio || com.NombreComercio) {
+            setTituloNegocio(com.nombreComercio || com.NombreComercio);
+          }
+          setEstaAbierto(com.estaAbierto !== false);
+          setUltimoCierreCaja(com.ultimoCierreCaja || null);
+          setCalificacionStats({
+            promedio: Number(com.calificacionPromedio || 0),
+            total: Number(com.totalCalificaciones || 0)
+          });
+          if (!configCargadaRef.current) {
+            setConfigRestaurante({
+              horarioAtencion: com.horarioAtencion || 'Lun - Dom: 9:00 AM - 10:00 PM',
+              tiempoPreparacion: com.tiempoPreparacion || '25-40 min',
+              envioGratis: com.envioGratis !== false,
+              costoEnvio: String(com.costoEnvio ?? 0),
+              logoUrl: com.logoUrl || ''
+            });
+            configCargadaRef.current = true;
+          }
+        }
+      } catch {
+        // Si falla la carga puntual del comercio, continuamos con productos y pedidos
+      }
+
       try {
         const resProd = await api.get(`/productos/comercio/${idReal}`);
         if (resProd.data && resProd.data.length > 0) {
@@ -109,8 +160,8 @@ function PanelRestaurante({ comercioId = 1, nombreComercio = "Mi Negocio", corre
         setProductos(resGen.data);
       }
 
-      const resPedidos = await api.get('/pedidos');
-      const listaPedidos = resPedidos.data || [];
+      const resPedidos = await api.get(`/pedidos/comercio/${idReal}`);
+      const listaPedidos = (resPedidos.data || []).filter(p => p.tenantId === idReal || !p.tenantId);
 
       const recibidosActuales = listaPedidos.filter(p => p.estado === 'RECIBIDO' || p.estado === 'PENDIENTE').length;
       if (ultimoConteoPedidos > 0 && recibidosActuales > ultimoConteoPedidos) {
@@ -133,6 +184,96 @@ function PanelRestaurante({ comercioId = 1, nombreComercio = "Mi Negocio", corre
     const intervalo = setInterval(cargarDatosRestaurante, 3000);
     return () => clearInterval(intervalo);
   }, [idReal, ultimoConteoPedidos]);
+
+  const handleToggleCaja = async (abrir) => {
+    if (!abrir) {
+      const confirmar = window.confirm(
+        "¿Cerrar caja / cerrar día? Las ventas del turno se reiniciarán a $0.00 y tu restaurante aparecerá como CERRADO para los clientes hasta que inicies ventas de nuevo."
+      );
+      if (!confirmar) return;
+    }
+
+    setCambiandoCaja(true);
+    setError(null);
+    try {
+      const res = await api.put(`/comercios/${idReal}/caja`, { estaAbierto: abrir });
+      setEstaAbierto(res.data?.estaAbierto ?? abrir);
+      setUltimoCierreCaja(res.data?.ultimoCierreCaja ?? (!abrir ? new Date().toISOString() : ultimoCierreCaja));
+      mostrarMensaje(
+        abrir
+          ? "🟢 ¡Ventas iniciadas! Tu restaurante ya aparece ABIERTO para los clientes."
+          : "🔒 Caja cerrada. Ingresos del día reiniciados y restaurante marcado como CERRADO."
+      );
+      cargarDatosRestaurante();
+    } catch (err) {
+      console.error("Error al actualizar estado de caja:", err);
+      setError("No se pudo actualizar el estado de la caja en el servidor.");
+    } finally {
+      setCambiandoCaja(false);
+    }
+  };
+
+  const handleLogoChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setProcesandoLogo(true);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 256;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height *= MAX_SIZE / width;
+            width = MAX_SIZE;
+          }
+        } else if (height > MAX_SIZE) {
+          width *= MAX_SIZE / height;
+          height = MAX_SIZE;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+        setConfigRestaurante((prev) => ({ ...prev, logoUrl: compressedBase64 }));
+        setProcesandoLogo(false);
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleGuardarConfiguracion = async (e) => {
+    e.preventDefault();
+    setGuardandoConfig(true);
+    setError(null);
+
+    try {
+      const costo = configRestaurante.envioGratis ? 0 : Math.max(0, parseFloat(configRestaurante.costoEnvio || '0') || 0);
+      await api.put(`/comercios/${idReal}/configuracion`, {
+        horarioAtencion: configRestaurante.horarioAtencion,
+        tiempoPreparacion: configRestaurante.tiempoPreparacion,
+        envioGratis: configRestaurante.envioGratis,
+        costoEnvio: costo,
+        logoUrl: configRestaurante.logoUrl || ''
+      });
+      mostrarMensaje("🏪 Perfil, horarios, envío y logo guardados correctamente.");
+      cargarDatosRestaurante();
+    } catch (err) {
+      console.error("Error al guardar configuración:", err);
+      setError("No se pudo guardar la configuración del restaurante.");
+    } finally {
+      setGuardandoConfig(false);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -189,7 +330,16 @@ function PanelRestaurante({ comercioId = 1, nombreComercio = "Mi Negocio", corre
   const pedidosRecibidos = pedidos.filter(p => p.estado === 'RECIBIDO' || p.estado === 'PENDIENTE');
   const pedidosEnPreparacion = pedidos.filter(p => p.estado === 'EN_PREPARACION' || p.estado === 'PREPARANDO');
   const pedidosHaciaDomicilio = pedidos.filter(p => p.estado === 'HACIA_DOMICILIO');
-  const pedidosCompletados = pedidos.filter(p => p.estado === 'COMPLETADO');
+
+  // Solo contamos en "Ventas del Día" las órdenes completadas en el turno actual (después del último cierre de caja)
+  const pedidosCompletados = !estaAbierto
+    ? []
+    : pedidos.filter(p => {
+        if (p.estado !== 'COMPLETADO') return false;
+        if (!ultimoCierreCaja) return true;
+        const fechaRef = new Date(p.fechaCompletado || p.fechaCreacion);
+        return fechaRef > new Date(ultimoCierreCaja);
+      });
 
   const ventasDelDiaTotal = pedidosCompletados.reduce((acc, p) => acc + (p.total || 0), 0);
 
@@ -257,10 +407,28 @@ function PanelRestaurante({ comercioId = 1, nombreComercio = "Mi Negocio", corre
         </svg>
 
         <div className="relative z-10 px-5 sm:px-6 py-5 flex items-center gap-3.5">
-          <div className="icon-3d-pod w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0">
-            👨‍🍳
+          <div className="icon-3d-pod w-14 h-14 rounded-full overflow-hidden flex items-center justify-center text-2xl shrink-0 border-2 border-amber-400/60">
+            {configRestaurante.logoUrl ? (
+              <img src={configRestaurante.logoUrl} alt={`Logo ${tituloNegocio}`} className="w-full h-full object-cover" />
+            ) : (
+              <span>👨‍🍳</span>
+            )}
           </div>
           <div>
+            <div className="flex flex-wrap items-center gap-1.5 mb-1">
+              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-black uppercase border ${
+                estaAbierto
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'
+                  : 'bg-red-500/20 text-red-300 border-red-400/40'
+              }`}>
+                {estaAbierto ? '🟢 Abierto' : '🔴 Cerrado'}
+              </span>
+              {calificacionStats.total > 0 && (
+                <span className="bg-[#070e14]/80 text-amber-300 border border-amber-400/40 text-[10px] px-2.5 py-0.5 rounded-full font-black">
+                  ⭐ {calificacionStats.promedio.toFixed(1)} ({calificacionStats.total})
+                </span>
+              )}
+            </div>
             <h2 className="text-2xl sm:text-[28px] font-black text-white leading-tight drop-shadow-xs">
               {tituloNegocio}
             </h2>
@@ -270,22 +438,43 @@ function PanelRestaurante({ comercioId = 1, nombreComercio = "Mi Negocio", corre
           </div>
         </div>
 
-        <div className="relative z-10 px-4 sm:pr-6 py-3 sm:py-0 flex items-center justify-end">
+        <div className="relative z-10 px-4 sm:pr-6 py-3 sm:py-4 flex items-center justify-end">
           <div
-            className="bg-[#1b1914]/95 border-2 border-amber-300 px-5 py-2.5 rounded-2xl text-center w-full sm:w-auto min-w-[180px]"
+            className="bg-[#1b1914]/95 border-2 border-amber-300 px-5 py-3 rounded-2xl text-center w-full sm:w-auto min-w-[215px] space-y-2"
             style={{ boxShadow: '0 0 24px rgba(251, 191, 36, 0.65), 0 8px 18px rgba(0, 0, 0, 0.55)' }}
           >
-            <p className="text-[10px] font-black text-amber-300 uppercase tracking-wider flex items-center justify-center gap-1">
-              <span>💰</span>
-              <span>VENTAS DEL DÍA</span>
-            </p>
-            <p className="text-xl sm:text-2xl font-black text-white leading-tight mt-0.5">
-              ${ventasDelDiaTotal.toFixed(2)}{' '}
-              <span className="text-[10px] font-extrabold text-amber-200">MXN</span>
-            </p>
-            <p className="text-[10px] text-amber-100/90 font-semibold mt-0.5">
-              {pedidosCompletados.length} órdenes completadas
-            </p>
+            <div>
+              <p className="text-[10px] font-black text-amber-300 uppercase tracking-wider flex items-center justify-center gap-1">
+                <span>💰</span>
+                <span>VENTAS DEL DÍA</span>
+              </p>
+              <p className="text-xl sm:text-2xl font-black text-white leading-tight mt-0.5">
+                ${ventasDelDiaTotal.toFixed(2)}{' '}
+                <span className="text-[10px] font-extrabold text-amber-200">MXN</span>
+              </p>
+              <p className="text-[10px] text-amber-100/90 font-semibold mt-0.5">
+                {estaAbierto ? `${pedidosCompletados.length} órdenes completadas` : 'Turno cerrado • Inicia ventas'}
+              </p>
+            </div>
+            {estaAbierto ? (
+              <button
+                type="button"
+                disabled={cambiandoCaja}
+                onClick={() => handleToggleCaja(false)}
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-black py-1.5 px-3 rounded-xl text-[11px] transition cursor-pointer disabled:opacity-50"
+              >
+                {cambiandoCaja ? 'Cerrando...' : '🔒 Cerrar Día / Caja'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={cambiandoCaja}
+                onClick={() => handleToggleCaja(true)}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-1.5 px-3 rounded-xl text-[11px] transition cursor-pointer disabled:opacity-50"
+              >
+                {cambiandoCaja ? 'Abriendo...' : '🟢 Iniciar Ventas (Abrir)'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -300,6 +489,142 @@ function PanelRestaurante({ comercioId = 1, nombreComercio = "Mi Negocio", corre
           {error}
         </div>
       )}
+
+      {/* Perfil del Restaurante: Logo, Horarios, Tiempo de Preparación y Envío */}
+      <div className="neon-amber-card bg-[#0e1b26] p-5 sm:p-6 rounded-2xl space-y-4">
+        <div>
+          <h3 className="text-sm sm:text-base font-black text-white flex items-center gap-2">
+            <span className="icon-3d-pod w-8 h-8 rounded-xl flex items-center justify-center text-base">🏪</span>
+            <span>Perfil, Horarios, Tiempo y Envío</span>
+          </h3>
+          <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+            Esta información aparecerá en tu tarjeta y menú para que los clientes sepan cómo y cuándo pedir.
+          </p>
+        </div>
+
+        <form onSubmit={handleGuardarConfiguracion} className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-[#070e14] p-4 rounded-xl border border-white/10">
+            <div className="w-16 h-16 rounded-full bg-[#0e1b26] border-2 border-amber-400/60 flex items-center justify-center overflow-hidden shrink-0">
+              {configRestaurante.logoUrl ? (
+                <img src={configRestaurante.logoUrl} alt="Logo del restaurante" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-2xl">🍔</span>
+              )}
+            </div>
+            <div className="space-y-1.5 flex-1">
+              <label className="block text-[11px] font-bold text-slate-200">🖼️ Logo / Foto de Perfil del Restaurante</label>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleLogoChange}
+                  className="text-[11px] text-slate-300 file:mr-2.5 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-[11px] file:font-bold file:bg-amber-500 file:text-slate-950 cursor-pointer"
+                />
+                {configRestaurante.logoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setConfigRestaurante((prev) => ({ ...prev, logoUrl: '' }))}
+                    className="text-[11px] text-red-300 hover:text-red-200 font-bold px-2.5 py-1 rounded-lg bg-red-950/40 border border-red-400/30 transition cursor-pointer"
+                  >
+                    Quitar logo
+                  </button>
+                )}
+              </div>
+              {procesandoLogo && <p className="text-[10px] text-amber-300 font-semibold animate-pulse">⏳ Optimizando logo...</p>}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">🕒 Horarios de Atención</label>
+              <input
+                type="text"
+                value={configRestaurante.horarioAtencion}
+                onChange={(e) => setConfigRestaurante({ ...configRestaurante, horarioAtencion: e.target.value })}
+                placeholder="Ej. Lun - Dom: 9:00 AM - 10:00 PM"
+                required
+                className="w-full px-3.5 py-2 bg-[#070e14] border border-white/15 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">⏱️ Tiempo Aproximado de Preparación</label>
+              <input
+                type="text"
+                value={configRestaurante.tiempoPreparacion}
+                onChange={(e) => setConfigRestaurante({ ...configRestaurante, tiempoPreparacion: e.target.value })}
+                placeholder="Ej. 25-40 min"
+                required
+                className="w-full px-3.5 py-2 bg-[#070e14] border border-white/15 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 font-medium"
+              />
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {['15-25 min', '25-40 min', '40-60 min'].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setConfigRestaurante({ ...configRestaurante, tiempoPreparacion: preset })}
+                    className="text-[10px] font-bold px-2.5 py-0.5 rounded-lg bg-[#122332] hover:bg-[#193044] text-amber-200 border border-amber-400/25 transition cursor-pointer"
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-[#070e14] p-4 rounded-xl border border-white/10 space-y-3">
+            <label className="block text-[11px] font-bold text-slate-300">🛵 Modalidad y Costo de Envío</label>
+            <div className="flex flex-wrap gap-2.5">
+              <button
+                type="button"
+                onClick={() => setConfigRestaurante({ ...configRestaurante, envioGratis: true, costoEnvio: '0' })}
+                className={`px-3.5 py-2 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+                  configRestaurante.envioGratis
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/60'
+                    : 'bg-[#0e1b26] text-slate-400 border-white/10 hover:text-white'
+                }`}
+              >
+                🛵 Envío Gratis
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfigRestaurante({ ...configRestaurante, envioGratis: false })}
+                className={`px-3.5 py-2 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+                  !configRestaurante.envioGratis
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-400/60'
+                    : 'bg-[#0e1b26] text-slate-400 border-white/10 hover:text-white'
+                }`}
+              >
+                💵 Envío con Costo
+              </button>
+            </div>
+
+            {!configRestaurante.envioGratis && (
+              <div className="max-w-xs">
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Costo de Envío ($ MXN)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.50"
+                  value={configRestaurante.costoEnvio}
+                  onChange={(e) => setConfigRestaurante({ ...configRestaurante, costoEnvio: e.target.value })}
+                  placeholder="Ej. 25.00"
+                  required
+                  className="w-full px-3.5 py-2 bg-[#0e1b26] border border-white/15 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 font-medium"
+                />
+              </div>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            disabled={guardandoConfig || procesandoLogo}
+            className="neon-btn-orange text-white font-black px-5 py-2 rounded-xl text-xs transition cursor-pointer disabled:opacity-50"
+          >
+            {guardandoConfig ? 'Guardando...' : 'Guardar Perfil del Restaurante 💾'}
+          </button>
+        </form>
+      </div>
 
       {/* Tarjeta Verde Agua Claro: Configuración de Cuenta para Transferencias */}
       <div

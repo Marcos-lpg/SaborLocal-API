@@ -5,7 +5,8 @@ function ClienteVista({
   comercio,
   servidorActivo = true,
   onPerderConexion = () => {},
-  onRecuperarConexion = () => {}
+  onRecuperarConexion = () => {},
+  onCalificacionGuardada
 }) {
   const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -41,9 +42,19 @@ function ClienteVista({
   const comercioCargadoRef = useRef(comercio?.id);
 
   const enLinea = Boolean(servidorActivo) && navigator.onLine;
+  const estaAbierto = comercio?.estaAbierto !== false;
+  const envioGratis = comercio?.envioGratis !== false || !(Number(comercio?.costoEnvio) > 0);
+  const costoEnvio = envioGratis ? 0 : Number(comercio?.costoEnvio || 0);
 
-  const [nombreCliente, setNombreCliente] = useState('');
-  const [telefonoCliente, setTelefonoCliente] = useState('');
+  const [nombreCliente, setNombreCliente] = useState(() => {
+    try {
+      const s = sessionStorage.getItem('saborlocal_sesion_tab') || localStorage.getItem('saborlocal_sesion_offline');
+      return s ? (JSON.parse(s)?.nombre || '') : '';
+    } catch {
+      return '';
+    }
+  });
+  const [telefonoCliente, setTelefonoCliente] = useState(() => localStorage.getItem('clienteTelefono') || '');
   const [direccionCliente, setDireccionCliente] = useState('');
   const [metodoPago, setMetodoPago] = useState('Efectivo');
   const [cambioPara, setCambioPara] = useState('');
@@ -56,6 +67,10 @@ function ClienteVista({
 
   const [pedidoEnviado, setPedidoEnviado] = useState(false);
   const [misPedidos, setMisPedidos] = useState([]);
+  const [calificacionesForm, setCalificacionesForm] = useState({});
+  const [hoverEstrella, setHoverEstrella] = useState({});
+  const [enviandoCalificacionId, setEnviandoCalificacionId] = useState(null);
+  const [pedidosCalificadosLocal, setPedidosCalificadosLocal] = useState({});
 
   useEffect(() => {
     if (comercio?.id && comercioCargadoRef.current !== comercio.id) {
@@ -88,6 +103,14 @@ function ClienteVista({
         direccion: datosComercio.direccion || 'Candelaria, Campeche',
         telefono: datosComercio.telefono || datosComercio.telefonoComercio || 'Sin teléfono',
         categoria: datosComercio.categoria || 'Especialidades de la Casa',
+        horarioAtencion: datosComercio.horarioAtencion || 'Lun - Dom: 9:00 AM - 10:00 PM',
+        tiempoPreparacion: datosComercio.tiempoPreparacion || '25-40 min',
+        envioGratis: datosComercio.envioGratis !== false,
+        costoEnvio: Number(datosComercio.costoEnvio || 0),
+        logoUrl: datosComercio.logoUrl || null,
+        estaAbierto: datosComercio.estaAbierto !== false,
+        calificacionPromedio: Number(datosComercio.calificacionPromedio || 0),
+        totalCalificaciones: Number(datosComercio.totalCalificaciones || 0),
         actualizadoEn: new Date().toISOString()
       };
       const sinDuplicado = directorioActual.filter(c => c.id !== datosComercio.id);
@@ -190,8 +213,8 @@ function ClienteVista({
         const mios = (res.data || []).filter(p =>
           p.telefonoCliente === telefonoCliente &&
           p.tenantId === comercio.id &&
-          p.estado !== 'COMPLETADO' &&
-          p.estado !== 'CANCELADO'
+          p.estado !== 'CANCELADO' &&
+          (p.estado !== 'COMPLETADO' || !p.calificacion || pedidosCalificadosLocal[p.id])
         );
         setMisPedidos(mios);
       } catch {
@@ -202,9 +225,43 @@ function ClienteVista({
     verificarEstatusPedidos();
     const interval = setInterval(verificarEstatusPedidos, 4000);
     return () => clearInterval(interval);
-  }, [telefonoCliente, comercio.id, enLinea]);
+  }, [telefonoCliente, comercio.id, enLinea, pedidosCalificadosLocal]);
+
+  const enviarCalificacion = async (pedidoId) => {
+    const form = calificacionesForm[pedidoId] || { estrellas: 0, comentario: '' };
+    if (!form.estrellas || form.estrellas < 1 || form.estrellas > 5) {
+      alert("Por favor selecciona de 1 a 5 estrellas para calificar al restaurante.");
+      return;
+    }
+
+    setEnviandoCalificacionId(pedidoId);
+    try {
+      await api.put(`/pedidos/${pedidoId}/calificar`, {
+        calificacion: form.estrellas,
+        comentario: form.comentario || ''
+      });
+
+      setPedidosCalificadosLocal(prev => ({ ...prev, [pedidoId]: form.estrellas }));
+      setMisPedidos(prev =>
+        prev.map(p => (p.id === pedidoId ? { ...p, calificacion: form.estrellas, comentarioCalificacion: form.comentario } : p))
+      );
+
+      if (onCalificacionGuardada) {
+        onCalificacionGuardada();
+      }
+    } catch (err) {
+      console.error("Error al enviar calificación:", err);
+      alert("No se pudo enviar tu calificación. Intenta nuevamente.");
+    } finally {
+      setEnviandoCalificacionId(null);
+    }
+  };
 
   const agregarAlCarrito = (producto) => {
+    if (enLinea && !estaAbierto) {
+      alert("Este restaurante se encuentra cerrado en este momento.");
+      return;
+    }
     const itemExistente = carrito.find(item => item.id === producto.id);
     if (itemExistente) {
       setCarrito(carrito.map(item =>
@@ -232,8 +289,14 @@ function ClienteVista({
     }
   };
 
+  const calcularSubtotal = () => {
+    return carrito.reduce((total, item) => total + (item.precio * item.cantidad), 0);
+  };
+
   const calcularTotal = () => {
-    return carrito.reduce((total, item) => total + (item.precio * item.cantidad), 0).toFixed(2);
+    const subtotal = calcularSubtotal();
+    const total = subtotal + (carrito.length > 0 ? costoEnvio : 0);
+    return total.toFixed(2);
   };
 
   const handleArchivoChange = (e) => {
@@ -305,6 +368,10 @@ function ClienteVista({
     e.preventDefault();
     if (!enLinea) {
       alert("Sin conexión con el servidor. Los pedidos en línea se restablecerán hasta que vuelva la conexión.");
+      return;
+    }
+    if (!estaAbierto) {
+      alert("Este restaurante acaba de cerrar sus ventas por hoy.");
       return;
     }
 
@@ -399,44 +466,174 @@ function ClienteVista({
 
       {/* Encabezado Neón del Comercio */}
       <div className="neon-amber-card rounded-2xl bg-gradient-to-r from-[#0f202d] via-[#132938] to-[#0f202d] p-5 sm:p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="space-y-1.5 min-w-0">
-          <span className="inline-block bg-emerald-500 text-white px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider shadow-[0_0_12px_rgba(16,185,129,0.65)]">
-            {enLinea ? 'ABIERTO' : 'GUARDADO'}
-          </span>
+        <div className="space-y-2 min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            {!enLinea ? (
+              <span className="inline-block bg-amber-500 text-slate-950 px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider">
+                🟡 GUARDADO
+              </span>
+            ) : estaAbierto ? (
+              <span className="inline-block bg-emerald-500 text-white px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider shadow-[0_0_12px_rgba(16,185,129,0.65)]">
+                🟢 ABIERTO
+              </span>
+            ) : (
+              <span className="inline-block bg-red-600 text-white px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider shadow-[0_0_12px_rgba(220,38,38,0.55)]">
+                🔴 CERRADO
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1 bg-[#070e14] border border-amber-400/35 text-amber-300 px-2.5 py-0.5 rounded-full text-[11px] font-black">
+              <span>⭐</span>
+              <span>
+                {Number(comercio.totalCalificaciones || 0) > 0
+                  ? `${Number(comercio.calificacionPromedio || 0).toFixed(1)} (${comercio.totalCalificaciones})`
+                  : 'Sin calificaciones'}
+              </span>
+            </span>
+          </div>
+
           <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white leading-tight drop-shadow-xs">
             {comercio.nombreComercio}
           </h2>
           <div className="flex flex-wrap gap-3 text-xs text-slate-300 font-medium">
             <span>📍 {comercio.direccion || "Candelaria, Campeche"}</span>
             <span>📞 {comercio.telefono || comercio.telefonoComercio || "Sin teléfono"}</span>
+            <span>🕒 {comercio.horarioAtencion || "Lun - Dom: 9:00 AM - 10:00 PM"}</span>
+            <span className="bg-[#070e14] px-2.5 py-0.5 rounded-lg border border-white/15 font-bold">
+              ⏱️ {comercio.tiempoPreparacion || "25-40 min"}
+            </span>
+            <span className={`px-2.5 py-0.5 rounded-lg border font-bold ${
+              envioGratis
+                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/35'
+                : 'bg-orange-500/15 text-orange-300 border-orange-400/35'
+            }`}>
+              🛵 {envioGratis ? 'Envío gratis' : `Envío $${costoEnvio.toFixed(2)} MXN`}
+            </span>
             {comercio.categoria && <span>🍔 {comercio.categoria}</span>}
           </div>
         </div>
 
-        <div className="icon-3d-pod w-20 h-20 rounded-2xl flex items-center justify-center text-4xl shrink-0">
-          🍔
+        <div className="icon-3d-pod w-20 h-20 rounded-full overflow-hidden flex items-center justify-center text-4xl shrink-0 border-2 border-amber-400/60">
+          {comercio.logoUrl ? (
+            <img src={comercio.logoUrl} alt={`Logo ${comercio.nombreComercio}`} className="w-full h-full object-cover" />
+          ) : (
+            <span>🍔</span>
+          )}
         </div>
       </div>
+
+      {enLinea && !estaAbierto && (
+        <div className="bg-red-500/15 border border-red-400/50 text-red-200 px-4 py-3 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-[0_0_16px_rgba(239,68,68,0.2)]">
+          <div className="space-y-0.5">
+            <p className="text-xs font-black flex items-center gap-2 text-red-300">
+              <span>🔒</span> Este restaurante está cerrado en este momento
+            </p>
+            <p className="text-[11px] text-red-100/85 leading-relaxed">
+              Puedes consultar el menú y horarios ({comercio.horarioAtencion || "Lun - Dom: 9:00 AM - 10:00 PM"}). Los pedidos se habilitarán cuando inicie sus ventas.
+            </p>
+          </div>
+          <span className="text-[10px] font-black bg-red-500/25 border border-red-400/35 px-2.5 py-1 rounded-xl text-red-200 self-start sm:self-center whitespace-nowrap">
+            Cerrado
+          </span>
+        </div>
+      )}
 
       {misPedidos.length > 0 && (
         <div className="neon-amber-card bg-[#0e1b26] p-4 rounded-2xl space-y-2.5">
           <h3 className="text-xs font-black text-amber-300 flex items-center gap-2">
-            <span>🔔</span> Estado de tus Pedidos Activos
+            <span>🔔</span> Estado de tus Pedidos
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {misPedidos.map(p => (
-              <div key={p.id} className="bg-[#070e14] p-3 rounded-xl border border-white/10 space-y-1">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="font-extrabold text-white">ORD-{p.id}</span>
-                  <span className="px-2 py-0.5 rounded-md font-extrabold text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-400/35">
-                    {p.estado}
-                  </span>
+            {misPedidos.map(p => {
+              const formCalif = calificacionesForm[p.id] || { estrellas: 0, comentario: '' };
+              const estrellaHover = hoverEstrella[p.id] || 0;
+              const yaCalificado = Boolean(p.calificacion || pedidosCalificadosLocal[p.id]);
+              const califFinal = p.calificacion || pedidosCalificadosLocal[p.id];
+
+              return (
+                <div key={p.id} className="bg-[#070e14] p-3.5 rounded-xl border border-white/10 space-y-2.5">
+                  <div className="flex justify-between items-center text-xs gap-2">
+                    <span className="font-extrabold text-white">ORD-{p.id}</span>
+                    <span className={`px-2 py-0.5 rounded-md font-extrabold text-[9px] border ${
+                      p.estado === 'COMPLETADO'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'
+                        : 'bg-amber-500/20 text-amber-300 border-amber-400/35'
+                    }`}>
+                      {p.estado === 'COMPLETADO' ? '✅ ¡Pedido Completado!' : p.estado}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 font-medium">
+                    Total: <span className="font-black text-amber-400">${p.total?.toFixed(2)} MXN</span>
+                  </p>
+
+                  {p.estado === 'COMPLETADO' && (
+                    <div className="pt-2 border-t border-white/10 space-y-2">
+                      {yaCalificado ? (
+                        <div className="bg-emerald-500/15 border border-emerald-400/35 rounded-xl p-2.5 text-[11px] text-emerald-300 font-bold flex items-center justify-between">
+                          <span>🎉 ¡Gracias por calificar!</span>
+                          <span className="text-amber-300">
+                            {'★'.repeat(califFinal)}{'☆'.repeat(5 - califFinal)} ({califFinal}/5)
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="bg-[#0e1b26] border border-amber-400/35 rounded-xl p-3 space-y-2">
+                          <p className="text-[11px] font-black text-amber-200">⭐ Califica al restaurante</p>
+                          <div className="flex items-center gap-1.5">
+                            {[1, 2, 3, 4, 5].map((num) => {
+                              const activo = num <= (estrellaHover || formCalif.estrellas);
+                              return (
+                                <button
+                                  key={num}
+                                  type="button"
+                                  onMouseEnter={() => setHoverEstrella(prev => ({ ...prev, [p.id]: num }))}
+                                  onMouseLeave={() => setHoverEstrella(prev => ({ ...prev, [p.id]: 0 }))}
+                                  onClick={() =>
+                                    setCalificacionesForm(prev => ({
+                                      ...prev,
+                                      [p.id]: { ...(prev[p.id] || {}), estrellas: num }
+                                    }))
+                                  }
+                                  className={`text-2xl transition transform hover:scale-110 cursor-pointer ${
+                                    activo ? 'text-amber-400' : 'text-slate-600'
+                                  }`}
+                                  title={`${num} estrella${num > 1 ? 's' : ''}`}
+                                >
+                                  ★
+                                </button>
+                              );
+                            })}
+                            {formCalif.estrellas > 0 && (
+                              <span className="text-[11px] font-bold text-amber-300 ml-2">
+                                {formCalif.estrellas} / 5
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            type="text"
+                            value={formCalif.comentario || ''}
+                            onChange={(e) =>
+                              setCalificacionesForm(prev => ({
+                                ...prev,
+                                [p.id]: { ...(prev[p.id] || {}), comentario: e.target.value }
+                              }))
+                            }
+                            placeholder="Comentario opcional sobre tu pedido..."
+                            className="w-full px-3 py-1.5 bg-[#070e14] border border-white/15 rounded-xl text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                          />
+                          <button
+                            type="button"
+                            disabled={enviandoCalificacionId === p.id || !formCalif.estrellas}
+                            onClick={() => enviarCalificacion(p.id)}
+                            className="neon-btn-orange w-full disabled:opacity-40 text-white font-black py-1.5 rounded-full text-[11px] transition cursor-pointer"
+                          >
+                            {enviandoCalificacionId === p.id ? 'Enviando calificación...' : 'Enviar Calificación ⭐'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <p className="text-[11px] text-slate-300 font-medium">
-                  Total: <span className="font-black text-amber-400">${p.total?.toFixed(2)} MXN</span>
-                </p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -480,8 +677,10 @@ function ClienteVista({
                 >
                   <div className="space-y-2">
                     <div className="icon-3d-pod relative h-32 w-full rounded-xl overflow-hidden flex items-center justify-center">
-                      <span className="absolute top-2 left-2 z-10 bg-emerald-500 text-white text-[9px] font-black px-2 py-0.5 rounded-md uppercase shadow-[0_0_10px_rgba(16,185,129,0.7)]">
-                        ABIERTO
+                      <span className={`absolute top-2 left-2 z-10 text-white text-[9px] font-black px-2 py-0.5 rounded-md uppercase ${
+                        !enLinea ? 'bg-amber-500 text-slate-950' : estaAbierto ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.7)]' : 'bg-red-600'
+                      }`}>
+                        {!enLinea ? 'GUARDADO' : estaAbierto ? 'ABIERTO' : 'CERRADO'}
                       </span>
                       <span className="text-5xl drop-shadow-[0_8px_12px_rgba(0,0,0,0.65)] select-none">🍔</span>
                     </div>
@@ -499,9 +698,14 @@ function ClienteVista({
                     <button
                       type="button"
                       onClick={() => agregarAlCarrito(prod)}
-                      className="neon-btn-orange text-white text-[11px] font-black px-3.5 py-1.5 rounded-full transition cursor-pointer"
+                      disabled={enLinea && !estaAbierto}
+                      className={`text-[11px] font-black px-3.5 py-1.5 rounded-full transition ${
+                        enLinea && !estaAbierto
+                          ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                          : 'neon-btn-orange text-white cursor-pointer'
+                      }`}
                     >
-                      Agregar +
+                      {enLinea && !estaAbierto ? 'Cerrado' : 'Agregar +'}
                     </button>
                   </div>
                 </div>
@@ -558,6 +762,16 @@ function ClienteVista({
                 </div>
 
                 <div className="border-t border-white/10 pt-3 space-y-2.5">
+                  <div className="flex justify-between items-center text-[11px] text-slate-400 font-medium">
+                    <span>Subtotal:</span>
+                    <span>${calcularSubtotal().toFixed(2)} MXN</span>
+                  </div>
+                  <div className="flex justify-between items-center text-[11px] font-bold">
+                    <span className="text-slate-400">Envío:</span>
+                    <span className={envioGratis ? 'text-emerald-400' : 'text-amber-300'}>
+                      {envioGratis ? 'Envío gratis' : `$${costoEnvio.toFixed(2)} MXN`}
+                    </span>
+                  </div>
                   <div className="flex justify-between items-center text-sm font-black text-white bg-[#070e14] p-3 rounded-xl border border-amber-400/25">
                     <span>Total a pagar:</span>
                     <span className="text-amber-400">${calcularTotal()} MXN</span>
@@ -566,14 +780,20 @@ function ClienteVista({
                   <button
                     type="button"
                     onClick={() => setModalCheckout(true)}
-                    disabled={!enLinea}
-                    className={`w-full font-black py-2.5 rounded-full transition text-xs flex items-center justify-center gap-2 cursor-pointer ${
-                      enLinea
-                        ? 'neon-btn-orange text-white'
+                    disabled={!enLinea || !estaAbierto}
+                    className={`w-full font-black py-2.5 rounded-full transition text-xs flex items-center justify-center gap-2 ${
+                      enLinea && estaAbierto
+                        ? 'neon-btn-orange text-white cursor-pointer'
                         : 'bg-slate-700 text-slate-400 cursor-not-allowed'
                     }`}
                   >
-                    <span>{enLinea ? 'Proceder al Pago →' : 'Disponible al volver la conexión'}</span>
+                    <span>
+                      {!enLinea
+                        ? 'Disponible al volver la conexión'
+                        : !estaAbierto
+                          ? 'Restaurante cerrado'
+                          : 'Proceder al Pago →'}
+                    </span>
                   </button>
                 </div>
               </div>
@@ -657,10 +877,14 @@ function ClienteVista({
                   <button type="button" onClick={() => setModalCheckout(false)} className="flex-1 bg-[#172836] hover:bg-[#1f3446] text-slate-200 font-bold py-2.5 rounded-xl text-xs transition cursor-pointer">Cancelar</button>
                   <button
                     type="submit"
-                    disabled={!enLinea}
-                    className="neon-btn-orange flex-1 text-white font-black py-2.5 rounded-xl text-xs transition cursor-pointer"
+                    disabled={!enLinea || !estaAbierto}
+                    className={`flex-1 font-black py-2.5 rounded-xl text-xs transition ${
+                      enLinea && estaAbierto
+                        ? 'neon-btn-orange text-white cursor-pointer'
+                        : 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                    }`}
                   >
-                    Confirmar Pedido
+                    {!enLinea ? 'Sin conexión' : !estaAbierto ? 'Cerrado' : 'Confirmar Pedido'}
                   </button>
                 </div>
               </form>
