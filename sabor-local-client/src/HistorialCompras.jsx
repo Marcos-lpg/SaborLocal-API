@@ -1,168 +1,375 @@
-import { useEffect, useState } from "react";
-import api from "./ApiClient";
+import { useState, useEffect } from 'react';
+import api from './ApiClient';
 
-export default function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver }) {
+function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver }) {
   const [historial, setHistorial] = useState([]);
-  const [busqueda, setBusqueda] = useState("");
-  const [cargando, setCargando] = useState(true);
-  const [errorMsg, setErrorMsg] = useState("");
+  const [busqueda, setBusqueda] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [pedidoDetalle, setPedidoDetalle] = useState(null);
 
-  useEffect(() => {
-    const cargarHistorial = async () => {
-      setCargando(true);
-      setErrorMsg("");
+  const cargarHistorial = async () => {
+    setLoading(true);
+    setErrorMsg('');
 
-      const telefonoGuardado = (localStorage.getItem("clienteTelefono") || "").trim();
+    const telefonoGuardado = (localStorage.getItem('clienteTelefono') || '').trim();
 
-      const obtenerHistorialLocal = () => {
-        const posiblesClaves = ["historial_compras", "mis_pedidos", "pedidos_cliente", "pedidos"];
-        for (const clave of posiblesClaves) {
+    const obtenerLocales = () => {
+      const posiblesClaves = ['mis_pedidos', 'historial_compras', 'pedidos_cliente', 'pedidos'];
+      for (const clave of posiblesClaves) {
+        try {
           const raw = localStorage.getItem(clave);
           if (!raw) continue;
-          try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              return parsed.map((p, i) => ({
-                pedidoId: p.pedidoId || p.id || p.codigo || `local-${i}`,
-                tenantId: p.tenantId || p.comercioId || p.restauranteId || p.idComercio || 2,
-                nombreComercio: p.nombreComercio || p.comercioNombre || p.restaurante || "Comercio",
-                total: p.total ?? p.montoTotal ?? 0,
-                fechaCreacion: p.fechaCreacion || p.fecha || new Date().toISOString(),
-                estado: p.estado || "Registrado",
-                direccionComercio: p.direccionComercio || p.direccion || "",
-                telefonoComercio: p.telefonoComercio || p.telefono || ""
-              }));
-            }
-          } catch {
-            // Ignorar JSON mal formado
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed;
           }
+        } catch {
+          // Ignorar JSON mal formado
         }
-        return [];
-      };
-
-      try {
-        const params = telefonoGuardado ? { telefono: telefonoGuardado } : {};
-        const res = await api.get("/pedidos/mi-historial", { params });
-        const listaApi = Array.isArray(res.data) ? res.data : [];
-
-        if (listaApi.length > 0) {
-          setHistorial(listaApi);
-        } else {
-          setHistorial(obtenerHistorialLocal());
-        }
-      } catch (err) {
-        console.warn("No se pudo cargar historial desde API, usando respaldo local:", err?.message);
-        const locales = obtenerHistorialLocal();
-        setHistorial(locales);
-        if (locales.length === 0 && !telefonoGuardado) {
-          setErrorMsg("");
-        }
-      } finally {
-        setCargando(false);
       }
+      return [];
     };
 
+    const locales = obtenerLocales();
+
+    try {
+      let apiPedidos = [];
+      try {
+        const resMiHistorial = await api.get('/pedidos/mi-historial', {
+          params: telefonoGuardado ? { telefono: telefonoGuardado } : {},
+          timeout: 2200
+        });
+        apiPedidos = Array.isArray(resMiHistorial.data) ? resMiHistorial.data : [];
+      } catch {
+        const res = await api.get('/pedidos', { timeout: 2200 });
+        const todos = Array.isArray(res.data) ? res.data : [];
+        apiPedidos = telefonoGuardado
+          ? todos.filter(p => p.telefonoCliente === telefonoGuardado)
+          : [];
+      }
+
+      const mapaPedidos = new Map();
+
+      locales.forEach((loc, idx) => {
+        const key = loc.pedidoId || loc.id || loc.codigo || `local-${idx}`;
+        mapaPedidos.set(String(key), {
+          ...loc,
+          pedidoId: loc.pedidoId || loc.id || loc.codigo || `ORD-${idx + 1}`,
+          idVisual: loc.pedidoId || loc.id || loc.codigo || `ORD-${idx + 1}`,
+          tenantId: loc.tenantId || loc.comercioId || loc.restauranteId || loc.idComercio || 1,
+          nombreComercio: loc.nombreComercio || loc.comercioNombre || loc.restaurante || 'Comercio',
+          total: loc.total ?? loc.montoTotal ?? 0,
+          fechaCreacion: loc.fechaCreacion || loc.fecha || new Date().toISOString(),
+          estado: loc.estado || 'RECIBIDO',
+          direccionComercio: loc.direccionComercio || loc.direccion || 'Candelaria, Campeche',
+          telefonoComercio: loc.telefonoComercio || loc.telefono || 'Sin teléfono',
+          detalles: loc.detalles || []
+        });
+      });
+
+      apiPedidos.forEach((p, idx) => {
+        const rawId = p.pedidoId || p.id || idx + 1;
+        const key = String(rawId);
+        const previo = mapaPedidos.get(key) || {};
+        const restoInfo = comercios.find(c => c.id === p.tenantId) || {};
+        mapaPedidos.set(key, {
+          ...previo,
+          pedidoId: rawId,
+          idVisual: String(rawId).startsWith('ORD-') || String(rawId).startsWith('local-') ? String(rawId) : `ORD-${rawId}`,
+          tenantId: p.tenantId || previo.tenantId || 1,
+          nombreComercio: p.nombreComercio || previo.nombreComercio || restoInfo.nombreComercio || `Restaurante #${p.tenantId || 1}`,
+          direccionComercio: p.direccionComercio || previo.direccionComercio || restoInfo.direccion || 'Candelaria, Campeche',
+          telefonoComercio: p.telefonoComercio || previo.telefonoComercio || restoInfo.telefono || restoInfo.telefonoComercio || 'Sin teléfono',
+          total: p.total ?? previo.total ?? 0,
+          estado: p.estado || previo.estado || 'RECIBIDO',
+          fechaCreacion: p.fechaCreacion || previo.fechaCreacion || new Date().toISOString(),
+          detalles: p.detalles || previo.detalles || []
+        });
+      });
+
+      const listaFinal = Array.from(mapaPedidos.values()).sort(
+        (a, b) => new Date(b.fechaCreacion) - new Date(a.fechaCreacion)
+      );
+      setHistorial(listaFinal);
+    } catch {
+      const listaLocal = locales.map((loc, idx) => {
+        const rawId = loc.pedidoId || loc.id || loc.codigo || `ORD-${idx + 1}`;
+        return {
+          ...loc,
+          pedidoId: rawId,
+          idVisual: rawId,
+          tenantId: loc.tenantId || loc.comercioId || loc.restauranteId || loc.idComercio || 1,
+          nombreComercio: loc.nombreComercio || loc.comercioNombre || loc.restaurante || 'Comercio',
+          total: loc.total ?? loc.montoTotal ?? 0,
+          fechaCreacion: loc.fechaCreacion || loc.fecha || new Date().toISOString(),
+          estado: loc.estado || 'RECIBIDO',
+          direccionComercio: loc.direccionComercio || loc.direccion || 'Candelaria, Campeche',
+          telefonoComercio: loc.telefonoComercio || loc.telefono || 'Sin teléfono',
+          detalles: loc.detalles || []
+        };
+      });
+      setHistorial(listaLocal);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     cargarHistorial();
-  }, []);
+  }, [comercios]);
 
   const historialFiltrado = historial.filter((item) =>
-    (item.nombreComercio || "").toLowerCase().includes(busqueda.toLowerCase())
+    (item.nombreComercio || '').toLowerCase().includes(busqueda.toLowerCase())
   );
 
-  const abrirPerfilRestaurante = (item) => {
-    const encontrado = comercios.find((c) => c.id === item.tenantId);
-    if (encontrado) {
-      onSeleccionarRestaurante(encontrado);
-    } else {
-      onSeleccionarRestaurante({
-        id: item.tenantId,
-        nombreComercio: item.nombreComercio,
-        direccion: item.direccionComercio,
-        telefono: item.telefonoComercio
-      });
+  const abrirRestauranteDesdePedido = (item) => {
+    const comercioEncontrado = comercios.find(c => c.id === item.tenantId);
+    const objetoComercio = comercioEncontrado || {
+      id: item.tenantId || 1,
+      nombreComercio: item.nombreComercio || 'Restaurante Local',
+      direccion: item.direccionComercio || 'Candelaria, Campeche',
+      telefono: item.telefonoComercio || 'Sin teléfono',
+      categoria: 'Candelaria'
+    };
+
+    if (onSeleccionarRestaurante) {
+      onSeleccionarRestaurante(objetoComercio);
     }
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <button
-          onClick={onVolver}
-          className="text-xs font-bold text-purple-300 hover:text-purple-200 flex items-center gap-2 bg-[#121826] px-4 py-3 rounded-2xl border border-slate-800 transition"
-        >
-          ← Volver al listado de comercios
-        </button>
-      </div>
+    <div className="max-w-5xl mx-auto space-y-5 pb-10 text-slate-100">
 
-      <div className="bg-[#121826] border border-slate-800 rounded-3xl p-6 space-y-4">
-        <div>
-          <h2 className="text-2xl font-black text-white">🧾 Mi Historial de Compras</h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Revisa dónde pediste recientemente y entra directo al perfil del restaurante.
-          </p>
+      {/* Encabezado Neón */}
+      <div className="neon-amber-card bg-gradient-to-r from-[#0d1f2a] via-[#122836] to-[#0d1f2a] px-5 sm:px-6 py-5 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <div className="flex items-center gap-3.5">
+          <div className="icon-3d-pod w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0">
+            🧾
+          </div>
+          <div className="space-y-0.5">
+            <h2 className="text-2xl sm:text-3xl font-black text-white leading-tight drop-shadow-xs">
+              Mi Historial de Compras
+            </h2>
+            <p className="text-xs text-slate-300 font-medium">
+              Consulta los restaurantes donde has comprado, revisa su información o vuelve a pedir.
+            </p>
+          </div>
         </div>
 
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={cargarHistorial}
+            className="text-xs bg-[#122332] hover:bg-[#193044] text-slate-200 px-3.5 py-2 rounded-xl font-bold transition border border-white/15 cursor-pointer"
+          >
+            🔄 Actualizar
+          </button>
+          {onVolver && (
+            <button
+              type="button"
+              onClick={onVolver}
+              className="neon-btn-orange text-xs text-white px-4 py-2 rounded-xl font-black transition cursor-pointer"
+            >
+              ← Explorar Comercios
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Barra de Búsqueda Neón */}
+      <div className="neon-search-bar rounded-full px-4 py-2.5 flex items-center gap-2.5">
+        <span className="text-cyan-300 text-xs drop-shadow-[0_0_6px_rgba(34,211,238,0.8)]">🔍</span>
         <input
           type="text"
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
-          placeholder="🔍 Buscar restaurante en tu historial..."
-          className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+          placeholder="Buscar restaurante en tu historial..."
+          className="w-full bg-transparent text-xs text-white placeholder:text-sky-200/80 focus:outline-none font-semibold"
         />
       </div>
 
-      {cargando ? (
-        <div className="bg-[#121826] border border-slate-800 rounded-3xl p-8 text-center text-xs text-slate-400">
-          Cargando historial...
+      {/* Lista de Compras */}
+      {loading ? (
+        <div className="neon-amber-card bg-[#0e1b26] p-10 rounded-2xl text-center space-y-2">
+          <div className="animate-spin text-2xl">🧾</div>
+          <p className="text-xs text-slate-400 font-semibold">Cargando tu historial de pedidos...</p>
         </div>
       ) : errorMsg ? (
-        <div className="bg-[#121826] border border-red-900/50 rounded-3xl p-8 text-center text-xs text-red-400">
+        <div className="neon-amber-card bg-[#0e1b26] border-red-400/40 p-8 rounded-2xl text-center text-xs text-red-200 font-bold">
           {errorMsg}
         </div>
       ) : historialFiltrado.length === 0 ? (
-        <div className="bg-[#121826] border border-slate-800 rounded-3xl p-8 text-center space-y-2">
-          <p className="text-sm font-bold text-white">No hay compras registradas todavía</p>
-          <p className="text-xs text-slate-400">
-            Cuando realices un pedido, aparecerá aquí para que puedas volver al restaurante fácilmente.
+        <div className="neon-amber-card bg-[#0e1b26] p-10 rounded-2xl text-center space-y-2.5">
+          <div className="icon-3d-pod w-14 h-14 rounded-2xl mx-auto flex items-center justify-center text-3xl">
+            🛍️
+          </div>
+          <h3 className="text-sm font-black text-white">No hay compras registradas todavía</h3>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            Cuando realices un pedido en cualquier restaurante de Sabor Local, aparecerá aquí con sus datos y opciones para volver a ordenar.
           </p>
+          {onVolver && (
+            <button
+              type="button"
+              onClick={onVolver}
+              className="neon-btn-orange mt-2 text-white text-xs font-black px-4 py-2 rounded-full transition cursor-pointer"
+            >
+              Ir a ver restaurantes
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {historialFiltrado.map((item, idx) => (
             <div
-              key={item.pedidoId || idx}
-              className="bg-[#121826] border border-slate-800 rounded-3xl p-5 flex flex-col justify-between gap-4"
+              key={`${item.idVisual}-${idx}`}
+              className="neon-amber-card bg-gradient-to-b from-[#152736] to-[#0c1822] p-5 rounded-2xl transition flex flex-col justify-between gap-4"
             >
-              <div className="space-y-1.5">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="text-base font-black text-white">{item.nombreComercio}</h3>
-                  <span className="text-sm font-black text-emerald-400">
-                    ${Number(item.total || 0).toFixed(2)}
+              <div className="space-y-2.5">
+                <div className="flex justify-between items-center gap-2">
+                  <span className="font-mono text-[10px] font-bold text-amber-200 bg-[#070e14] border border-white/15 px-2.5 py-0.5 rounded-full">
+                    {item.idVisual}
+                  </span>
+                  <span
+                    className={`text-[10px] px-2.5 py-0.5 rounded-md font-black uppercase ${
+                      item.estado === 'COMPLETADO'
+                        ? 'bg-emerald-500 text-white shadow-[0_0_10px_rgba(16,185,129,0.6)]'
+                        : item.estado === 'CANCELADO'
+                        ? 'bg-red-600 text-white'
+                        : 'bg-amber-500/20 text-amber-300 border border-amber-400/35'
+                    }`}
+                  >
+                    {item.estado || 'RECIBIDO'}
                   </span>
                 </div>
 
-                <p className="text-[11px] text-slate-400">
-                  {new Date(item.fechaCreacion).toLocaleString("es-MX")} • {item.estado}
-                </p>
+                <div>
+                  <h3 className="text-lg font-black text-white leading-snug">
+                    🏪 {item.nombreComercio}
+                  </h3>
+                  <p className="text-[11px] text-slate-300 mt-1">
+                    📍 {item.direccionComercio || 'Candelaria, Campeche'}
+                  </p>
+                  <p className="text-[11px] text-slate-300 mt-0.5">
+                    📞 {item.telefonoComercio || 'Sin teléfono'}
+                  </p>
+                </div>
 
-                {item.direccionComercio && (
-                  <p className="text-xs text-slate-400">📍 {item.direccionComercio}</p>
-                )}
-                {item.telefonoComercio && (
-                  <p className="text-xs text-slate-400">📞 {item.telefonoComercio}</p>
-                )}
+                <div className="flex justify-between items-center pt-2.5 border-t border-white/10 text-xs gap-2">
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    📅{' '}
+                    {new Date(item.fechaCreacion).toLocaleDateString('es-MX', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </span>
+                  <span className="text-sm font-black text-amber-400 whitespace-nowrap">
+                    ${Number(item.total || 0).toFixed(2)} MXN
+                  </span>
+                </div>
               </div>
 
-              <button
-                onClick={() => abrirPerfilRestaurante(item)}
-                className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-2.5 px-4 rounded-2xl text-xs transition cursor-pointer"
-              >
-                Ir al perfil del restaurante →
-              </button>
+              <div className="flex gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setPedidoDetalle(item)}
+                  className="flex-1 bg-[#122332] hover:bg-[#193044] text-slate-200 font-bold py-2 px-3 rounded-xl text-xs transition border border-white/15 cursor-pointer"
+                >
+                  Ver Detalles
+                </button>
+                <button
+                  type="button"
+                  onClick={() => abrirRestauranteDesdePedido(item)}
+                  className="neon-btn-orange flex-1 text-white font-black py-2 px-3 rounded-full text-xs transition cursor-pointer"
+                >
+                  Ir al Restaurante →
+                </button>
+              </div>
             </div>
           ))}
         </div>
       )}
+
+      {/* Modal de Detalles del Pedido */}
+      {pedidoDetalle && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="neon-amber-card bg-[#0e1b26] rounded-2xl max-w-md w-full p-6 space-y-4 text-slate-100">
+            <div className="flex justify-between items-start border-b border-white/10 pb-3">
+              <div>
+                <span className="text-[10px] font-mono font-bold text-amber-300">{pedidoDetalle.idVisual}</span>
+                <h3 className="text-base font-black text-white mt-0.5">{pedidoDetalle.nombreComercio}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPedidoDetalle(null)}
+                className="w-7 h-7 rounded-full bg-[#172836] hover:bg-[#1f3446] text-slate-200 font-bold text-xs flex items-center justify-center cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="bg-[#070e14] p-3.5 rounded-xl border border-white/10 space-y-1 text-xs">
+              <p className="text-slate-300">
+                <strong className="text-white">Estado:</strong> {pedidoDetalle.estado || 'RECIBIDO'}
+              </p>
+              <p className="text-slate-300">
+                <strong className="text-white">Dirección del local:</strong> {pedidoDetalle.direccionComercio || 'Candelaria, Campeche'}
+              </p>
+              <p className="text-slate-300">
+                <strong className="text-white">Teléfono:</strong> {pedidoDetalle.telefonoComercio || 'Sin teléfono'}
+              </p>
+            </div>
+
+            {pedidoDetalle.detalles && pedidoDetalle.detalles.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-extrabold text-white">Platillos ordenados:</p>
+                <div className="bg-[#070e14] p-3 rounded-xl border border-white/10 space-y-1 text-xs">
+                  {pedidoDetalle.detalles.map((d, i) => (
+                    <div key={i} className="flex justify-between text-slate-200 font-medium">
+                      <span>{d.cantidad}x {d.nombreProducto}</span>
+                      <span className="font-bold text-amber-400">${((d.precio || 0) * (d.cantidad || 1)).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-between items-center pt-2 border-t border-white/10">
+              <span className="text-xs font-bold text-slate-400">Total pagado</span>
+              <span className="text-base font-black text-amber-400">
+                ${Number(pedidoDetalle.total || 0).toFixed(2)} MXN
+              </span>
+            </div>
+
+            <div className="flex gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setPedidoDetalle(null)}
+                className="flex-1 bg-[#172836] hover:bg-[#1f3446] text-slate-200 font-bold py-2.5 rounded-xl text-xs transition cursor-pointer"
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const target = pedidoDetalle;
+                  setPedidoDetalle(null);
+                  abrirRestauranteDesdePedido(target);
+                }}
+                className="neon-btn-orange flex-1 text-white font-black py-2.5 rounded-xl text-xs transition cursor-pointer"
+              >
+                Volver a Pedir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+
+export default HistorialCompras;

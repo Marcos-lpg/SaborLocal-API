@@ -1,12 +1,44 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from './ApiClient';
 
-function ClienteVista({ comercio, servidorActivo = true }) {
+function ClienteVista({
+  comercio,
+  servidorActivo = true,
+  onPerderConexion = () => {},
+  onRecuperarConexion = () => {}
+}) {
   const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [carrito, setCarrito] = useState([]);
+
+  const obtenerClaveCarrito = (comercioId) => {
+    try {
+      const sesionRaw =
+        sessionStorage.getItem('saborlocal_sesion_tab') ||
+        localStorage.getItem('saborlocal_sesion_offline');
+      const sesionParsed = sesionRaw ? JSON.parse(sesionRaw) : null;
+      const identificadorUsuario =
+        sesionParsed?.telefono || sesionParsed?.nombre || 'invitado';
+      return `carrito_comercio_${identificadorUsuario}_${comercioId}`;
+    } catch {
+      return `carrito_comercio_invitado_${comercioId}`;
+    }
+  };
+
+  const leerCarritoGuardado = (comercioId) => {
+    if (!comercioId) return [];
+    try {
+      const guardado = localStorage.getItem(obtenerClaveCarrito(comercioId));
+      const parsed = guardado ? JSON.parse(guardado) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const [carrito, setCarrito] = useState(() => leerCarritoGuardado(comercio?.id));
   const [modalCheckout, setModalCheckout] = useState(false);
+  const comercioCargadoRef = useRef(comercio?.id);
 
   const enLinea = Boolean(servidorActivo) && navigator.onLine;
 
@@ -15,7 +47,7 @@ function ClienteVista({ comercio, servidorActivo = true }) {
   const [direccionCliente, setDireccionCliente] = useState('');
   const [metodoPago, setMetodoPago] = useState('Efectivo');
   const [cambioPara, setCambioPara] = useState('');
-  
+
   const [comprobanteBase64, setComprobanteBase64] = useState('');
   const [nombreArchivo, setNombreArchivo] = useState('');
   const [cargandoImagen, setCargandoImagen] = useState(false);
@@ -24,6 +56,27 @@ function ClienteVista({ comercio, servidorActivo = true }) {
 
   const [pedidoEnviado, setPedidoEnviado] = useState(false);
   const [misPedidos, setMisPedidos] = useState([]);
+
+  useEffect(() => {
+    if (comercio?.id && comercioCargadoRef.current !== comercio.id) {
+      comercioCargadoRef.current = comercio.id;
+      setCarrito(leerCarritoGuardado(comercio.id));
+    }
+  }, [comercio?.id]);
+
+  useEffect(() => {
+    if (!comercio?.id) return;
+    try {
+      const clave = obtenerClaveCarrito(comercio.id);
+      if (carrito.length > 0) {
+        localStorage.setItem(clave, JSON.stringify(carrito));
+      } else {
+        localStorage.removeItem(clave);
+      }
+    } catch (e) {
+      console.error('Error al guardar el carrito local:', e);
+    }
+  }, [carrito, comercio?.id]);
 
   const guardarEnDirectorioOffline = (datosComercio, listaProductos) => {
     try {
@@ -45,10 +98,10 @@ function ClienteVista({ comercio, servidorActivo = true }) {
   };
 
   useEffect(() => {
-    const bancoResto = localStorage.getItem(`banco_${comercio.id}`) || 
-                       localStorage.getItem(`banco_1`) || 
+    const bancoResto = localStorage.getItem(`banco_${comercio.id}`) ||
+                       localStorage.getItem(`banco_1`) ||
                        localStorage.getItem('banco_Noche buena');
-    
+
     if (bancoResto) {
       setDatosBancoRestaurante(JSON.parse(bancoResto));
     } else {
@@ -63,7 +116,8 @@ function ClienteVista({ comercio, servidorActivo = true }) {
       setLoading(true);
       const cacheGuardada = localStorage.getItem(`cache_menu_${comercio.id}`);
 
-      if (!enLinea) {
+      if (!navigator.onLine) {
+        onPerderConexion();
         if (cacheGuardada) {
           setProductos(JSON.parse(cacheGuardada));
           setError(null);
@@ -75,26 +129,38 @@ function ClienteVista({ comercio, servidorActivo = true }) {
       }
 
       try {
-        const res = await api.get(`/productos/comercio/${comercio.id}`, { timeout: 2500 });
+        const res = await api.get(`/productos/comercio/${comercio.id}`, {
+          timeout: 1800,
+          headers: { 'Cache-Control': 'no-cache' }
+        });
+        onRecuperarConexion();
         let listaFinal = [];
         if (res.data && res.data.length > 0) {
           listaFinal = res.data;
         } else {
-          const resGeneral = await api.get('/productos', { timeout: 2500 });
-          listaFinal = resGeneral.data.filter(p => 
+          const resGeneral = await api.get('/productos', {
+            timeout: 1800,
+            headers: { 'Cache-Control': 'no-cache' }
+          });
+          listaFinal = (resGeneral.data || []).filter(p =>
             p.tenantId === comercio.id || p.tenantId === 1 || !p.tenantId
           );
         }
         setProductos(listaFinal);
         guardarEnDirectorioOffline(comercio, listaFinal);
         setError(null);
-      } catch (err) {
+      } catch {
         try {
-          const resGeneral = await api.get('/productos', { timeout: 2500 });
-          setProductos(resGeneral.data);
-          guardarEnDirectorioOffline(comercio, resGeneral.data);
+          const resGeneral = await api.get('/productos', {
+            timeout: 1800,
+            headers: { 'Cache-Control': 'no-cache' }
+          });
+          onRecuperarConexion();
+          setProductos(resGeneral.data || []);
+          guardarEnDirectorioOffline(comercio, resGeneral.data || []);
           setError(null);
-        } catch (e) {
+        } catch {
+          onPerderConexion();
           if (cacheGuardada) {
             setProductos(JSON.parse(cacheGuardada));
             setError(null);
@@ -110,23 +176,26 @@ function ClienteVista({ comercio, servidorActivo = true }) {
     if (comercio?.id) {
       cargarProductosDelComercio();
     }
-  }, [comercio, enLinea]);
+  }, [comercio]);
 
-  // Los pedidos activos se mantienen visibles hasta que su estado sea COMPLETADO o CANCELADO
   useEffect(() => {
     const verificarEstatusPedidos = async () => {
       if (!telefonoCliente || !enLinea) return;
       try {
-        const res = await api.get('/pedidos', { timeout: 2500 });
-        const mios = (res.data || []).filter(p => 
-          p.telefonoCliente === telefonoCliente && 
+        const res = await api.get('/pedidos', {
+          timeout: 1800,
+          headers: { 'Cache-Control': 'no-cache' }
+        });
+        onRecuperarConexion();
+        const mios = (res.data || []).filter(p =>
+          p.telefonoCliente === telefonoCliente &&
           p.tenantId === comercio.id &&
           p.estado !== 'COMPLETADO' &&
           p.estado !== 'CANCELADO'
         );
         setMisPedidos(mios);
-      } catch (e) {
-        console.error("Error al verificar estatus:", e);
+      } catch {
+        onPerderConexion();
       }
     };
 
@@ -138,7 +207,7 @@ function ClienteVista({ comercio, servidorActivo = true }) {
   const agregarAlCarrito = (producto) => {
     const itemExistente = carrito.find(item => item.id === producto.id);
     if (itemExistente) {
-      setCarrito(carrito.map(item => 
+      setCarrito(carrito.map(item =>
         item.id === producto.id ? { ...item, cantidad: item.cantidad + 1 } : item
       ));
     } else {
@@ -154,6 +223,13 @@ function ClienteVista({ comercio, servidorActivo = true }) {
       }
       return item;
     }).filter(Boolean));
+  };
+
+  const vaciarCarrito = () => {
+    setCarrito([]);
+    if (comercio?.id) {
+      localStorage.removeItem(obtenerClaveCarrito(comercio.id));
+    }
   };
 
   const calcularTotal = () => {
@@ -277,13 +353,14 @@ function ClienteVista({ comercio, servidorActivo = true }) {
 
     try {
       const res = await api.post('/pedidos', pedidoPayload);
+      onRecuperarConexion();
       guardarEnHistorial(pedidoPayload, res?.data);
 
       setTimeout(() => {
         setModalCheckout(false);
         setPedidoEnviado(false);
         setMensajeRevision(false);
-        setCarrito([]);
+        vaciarCarrito();
         setNombreCliente('');
         setDireccionCliente('');
         setCambioPara('');
@@ -294,6 +371,7 @@ function ClienteVista({ comercio, servidorActivo = true }) {
 
     } catch (err) {
       console.error("Error al enviar el pedido:", err);
+      onPerderConexion();
       alert("Hubo un error al procesar tu pedido o se detuvo el servidor. Los pedidos en línea se restablecerán cuando vuelva la conexión.");
       setPedidoEnviado(false);
       setMensajeRevision(false);
@@ -301,123 +379,129 @@ function ClienteVista({ comercio, servidorActivo = true }) {
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-12 text-slate-100">
-      
-      {/* AVISO MODO SIN CONEXIÓN */}
+    <div className="max-w-5xl mx-auto space-y-5 pb-10 text-slate-100">
+
       {!enLinea && (
-        <div className="bg-amber-500/15 border border-amber-500/40 text-amber-200 px-5 py-4 rounded-3xl shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="space-y-1">
-            <p className="text-xs sm:text-sm font-black text-amber-300 flex items-center gap-2">
+        <div className="bg-amber-500/15 border border-amber-400/50 text-amber-200 px-4 py-3 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-[0_0_16px_rgba(245,158,11,0.2)]">
+          <div className="space-y-0.5">
+            <p className="text-xs font-black flex items-center gap-2">
               <span>📡</span> Modo Sin Conexión (Directorio Offline Activo)
             </p>
-            <p className="text-xs text-amber-100/90 leading-relaxed">
-              Estás consultando el menú y los datos guardados localmente. Los pedidos en línea y las actualizaciones de estado se restablecerán automáticamente hasta que vuelva la conexión.
+            <p className="text-[11px] text-amber-100/85 leading-relaxed">
+              Estás consultando el menú y los datos guardados localmente. Los pedidos en línea se restablecerán al volver la conexión.
             </p>
           </div>
-          <span className="text-[11px] font-bold bg-amber-500/20 border border-amber-500/30 px-3 py-1.5 rounded-xl text-amber-300 self-start sm:self-center whitespace-nowrap">
+          <span className="text-[10px] font-bold bg-amber-500/25 border border-amber-400/35 px-2.5 py-1 rounded-xl text-amber-200 self-start sm:self-center whitespace-nowrap">
             Solo consulta
           </span>
         </div>
       )}
 
-      {/* HERO BANNER */}
-      <div className="relative rounded-3xl overflow-hidden bg-gradient-to-r from-[#121826] via-slate-900 to-[#121826] text-white shadow-2xl p-8 sm:p-10 border border-slate-800">
-        <div className="absolute right-0 top-0 bottom-0 opacity-10 pointer-events-none text-9xl flex items-center pr-10 select-none">
-          🍔
-        </div>
-        <div className="relative z-10 space-y-3">
-          {enLinea ? (
-            <div className="inline-flex items-center gap-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
-              🟢 Establecimiento Abierto y Verificado
-            </div>
-          ) : (
-            <div className="inline-flex items-center gap-2 bg-amber-500/20 border border-amber-500/30 text-amber-300 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
-              🟡 Catálogo Guardado (Sin Conexión)
-            </div>
-          )}
-          <h2 className="text-3xl sm:text-4xl font-black tracking-tight">{comercio.nombreComercio}</h2>
-          <div className="flex flex-wrap gap-4 text-xs text-slate-400 font-medium pt-1">
-            <span className="flex items-center gap-1.5">📍 {comercio.direccion || "Candelaria, Campeche"}</span>
-            <span className="flex items-center gap-1.5">📞 {comercio.telefono || comercio.telefonoComercio || "Sin teléfono"}</span>
-            <span className="bg-orange-500/20 text-orange-400 px-3 py-0.5 rounded-lg border border-orange-500/30 font-bold">
-              🏷️ {comercio.categoria || "Especialidades de la Casa"}
-            </span>
+      {/* Encabezado Neón del Comercio */}
+      <div className="neon-amber-card rounded-2xl bg-gradient-to-r from-[#0f202d] via-[#132938] to-[#0f202d] p-5 sm:p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="space-y-1.5 min-w-0">
+          <span className="inline-block bg-emerald-500 text-white px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider shadow-[0_0_12px_rgba(16,185,129,0.65)]">
+            {enLinea ? 'ABIERTO' : 'GUARDADO'}
+          </span>
+          <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white leading-tight drop-shadow-xs">
+            {comercio.nombreComercio}
+          </h2>
+          <div className="flex flex-wrap gap-3 text-xs text-slate-300 font-medium">
+            <span>📍 {comercio.direccion || "Candelaria, Campeche"}</span>
+            <span>📞 {comercio.telefono || comercio.telefonoComercio || "Sin teléfono"}</span>
+            {comercio.categoria && <span>🍔 {comercio.categoria}</span>}
           </div>
+        </div>
+
+        <div className="icon-3d-pod w-20 h-20 rounded-2xl flex items-center justify-center text-4xl shrink-0">
+          🍔
         </div>
       </div>
 
       {misPedidos.length > 0 && (
-        <div className="bg-[#121826] border border-orange-500/30 p-6 rounded-3xl shadow-2xl space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-black text-orange-400 flex items-center gap-2">
-              <span>🔔</span> Estado de tus Pedidos Activos
-            </h3>
-            {!enLinea && (
-              <span className="text-[11px] text-amber-300 font-semibold">
-                ⏸️ En pausa sin conexión: se actualizará al volver la conexión
-              </span>
-            )}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="neon-amber-card bg-[#0e1b26] p-4 rounded-2xl space-y-2.5">
+          <h3 className="text-xs font-black text-amber-300 flex items-center gap-2">
+            <span>🔔</span> Estado de tus Pedidos Activos
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {misPedidos.map(p => (
-              <div key={p.id} className="bg-[#0b0f19] p-4 rounded-2xl border border-slate-800 space-y-2">
+              <div key={p.id} className="bg-[#070e14] p-3 rounded-xl border border-white/10 space-y-1">
                 <div className="flex justify-between items-center text-xs">
                   <span className="font-extrabold text-white">ORD-{p.id}</span>
-                  <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] ${
-                    p.estado === 'RECIBIDO' || p.estado === 'PENDIENTE' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
-                    p.estado === 'EN_PREPARACION' || p.estado === 'PREPARANDO' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30 animate-pulse' :
-                    p.estado === 'HACIA_DOMICILIO' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-bounce' : 'bg-slate-800 text-slate-300'
-                  }`}>
-                    {p.estado === 'RECIBIDO' || p.estado === 'PENDIENTE' ? '🟡 Pedido Recibido (Revisando comprobante)' :
-                     p.estado === 'EN_PREPARACION' || p.estado === 'PREPARANDO' ? '👨‍🍳 ¡Comida en Preparación!' :
-                     p.estado === 'HACIA_DOMICILIO' ? '🚀 ¡En camino a tu domicilio!' : p.estado}
+                  <span className="px-2 py-0.5 rounded-md font-extrabold text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-400/35">
+                    {p.estado}
                   </span>
                 </div>
-                <p className="text-xs text-slate-300 font-medium">Total: <span className="font-black text-orange-400">${p.total?.toFixed(2)} MXN</span></p>
+                <p className="text-[11px] text-slate-300 font-medium">
+                  Total: <span className="font-black text-amber-400">${p.total?.toFixed(2)} MXN</span>
+                </p>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-        <div className="lg:col-span-2 space-y-5">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 className="text-lg font-black text-white flex items-center gap-2">
-              <span>📜</span> Menú del Día y Platillos
+      {/* Grid Principal: Menú con Pod 3D + Carrito Neón */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+        <div className="lg:col-span-2 space-y-3.5">
+          <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+            <h3 className="text-sm font-black text-white flex items-center gap-2">
+              <span className="text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]">■</span>
+              <span>Menú del Día y Platillos</span>
             </h3>
-            <span className="text-xs font-bold text-slate-400">{productos.length} opciones disponibles</span>
+            <span className="text-[11px] font-bold text-slate-200 bg-[#132534] border border-cyan-400/30 px-3 py-0.5 rounded-full shadow-[0_0_10px_rgba(34,211,238,0.18)]">
+              {productos.length} opciones disponibles
+            </span>
           </div>
 
           {loading ? (
-            <div className="py-20 text-center space-y-3">
+            <div className="neon-amber-card bg-[#0e1b26] p-12 rounded-2xl text-center space-y-2">
               <div className="animate-spin text-3xl">🍔</div>
-              <p className="text-slate-400 text-xs font-semibold">Cargando platillos deliciosos...</p>
+              <p className="text-slate-400 text-xs font-semibold">Cargando platillos...</p>
             </div>
           ) : error && productos.length === 0 ? (
-            <div className="bg-[#121826] p-12 rounded-3xl text-center border border-slate-800 shadow-2xl space-y-2">
+            <div className="neon-amber-card bg-[#0e1b26] p-8 rounded-2xl text-center space-y-1.5">
               <p className="text-3xl">📡</p>
-              <h4 className="text-base font-bold text-white">Sin datos guardados</h4>
+              <h4 className="text-xs font-black text-white">Sin datos guardados</h4>
               <p className="text-slate-400 text-xs">{error}</p>
             </div>
           ) : productos.length === 0 ? (
-            <div className="bg-[#121826] p-12 rounded-3xl text-center border border-slate-800 shadow-2xl space-y-2">
+            <div className="neon-amber-card bg-[#0e1b26] p-8 rounded-2xl text-center space-y-1.5">
               <p className="text-3xl">🍽️</p>
-              <h4 className="text-base font-bold text-white">Menú en preparación</h4>
+              <h4 className="text-xs font-black text-white">Menú en preparación</h4>
               <p className="text-slate-400 text-xs">Este establecimiento aún no ha publicado platillos.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {productos.map((prod) => (
-                <div key={prod.id} className="bg-[#121826] rounded-3xl p-5 border border-slate-800 hover:border-orange-500/50 shadow-2xl transition duration-300 flex flex-col justify-between group">
+                <div
+                  key={prod.id}
+                  className="neon-amber-card bg-gradient-to-b from-[#152736] to-[#0c1822] rounded-2xl p-4 transition flex flex-col justify-between gap-3"
+                >
                   <div className="space-y-2">
-                    <h4 className="font-extrabold text-white text-base group-hover:text-orange-400 transition">{prod.nombre}</h4>
-                    <p className="text-xs text-slate-400 font-medium line-clamp-2">{prod.descripcion || "Elaborado con ingredientes frescos de la región."}</p>
+                    <div className="icon-3d-pod relative h-32 w-full rounded-xl overflow-hidden flex items-center justify-center">
+                      <span className="absolute top-2 left-2 z-10 bg-emerald-500 text-white text-[9px] font-black px-2 py-0.5 rounded-md uppercase shadow-[0_0_10px_rgba(16,185,129,0.7)]">
+                        ABIERTO
+                      </span>
+                      <span className="text-5xl drop-shadow-[0_8px_12px_rgba(0,0,0,0.65)] select-none">🍔</span>
+                    </div>
+
+                    <h4 className="font-black text-white text-sm leading-snug">{prod.nombre}</h4>
+                    <p className="text-[11px] text-slate-300/85 line-clamp-2">
+                      {prod.descripcion || "Elaborado con ingredientes frescos de la región."}
+                    </p>
                   </div>
-                  <div className="flex justify-between items-center mt-5 pt-3 border-t border-slate-800">
-                    <span className="text-base font-black text-orange-400">${prod.precio.toFixed(2)} <span className="text-[10px] text-slate-500">MXN</span></span>
-                    <button onClick={() => agregarAlCarrito(prod)} className="bg-slate-800 group-hover:bg-orange-600 text-slate-200 group-hover:text-white text-xs font-bold px-4 py-2.5 rounded-2xl transition duration-300 shadow-md flex items-center gap-1.5 border border-slate-700">
-                      <span>Agregar</span><span>+</span>
+
+                  <div className="flex justify-between items-center pt-2 border-t border-white/10 gap-2">
+                    <span className="text-sm font-black text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.35)]">
+                      ${prod.precio.toFixed(2)} <span className="text-[10px] font-bold text-slate-300">MXN</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => agregarAlCarrito(prod)}
+                      className="neon-btn-orange text-white text-[11px] font-black px-3.5 py-1.5 rounded-full transition cursor-pointer"
+                    >
+                      Agregar +
                     </button>
                   </div>
                 </div>
@@ -426,158 +510,157 @@ function ClienteVista({ comercio, servidorActivo = true }) {
           )}
         </div>
 
-        {/* CARRITO */}
-        <div className="bg-[#121826] p-6 rounded-3xl shadow-2xl border border-slate-800 sticky top-28 space-y-5">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 className="text-base font-black text-white flex items-center gap-2"><span>🛒</span> Tu Pedido Actual</h3>
-            <span className="bg-orange-500/20 text-orange-400 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-orange-500/30">{carrito.reduce((acc, item) => acc + item.cantidad, 0)} items</span>
+        {/* Carrito Lateral Neón */}
+        <div className="neon-amber-card bg-[#0e1b26] rounded-2xl sticky top-24 overflow-hidden">
+          <div className="neon-btn-orange px-4 py-3 flex items-center justify-between">
+            <h3 className="text-xs font-black text-white flex items-center gap-2">
+              <span>Tu Pedido Actual</span>
+              <span className="bg-black/30 text-amber-100 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                {carrito.reduce((acc, item) => acc + item.cantidad, 0)} items
+              </span>
+            </h3>
+            {carrito.length > 0 && (
+              <button
+                type="button"
+                onClick={vaciarCarrito}
+                className="text-[10px] font-extrabold text-white/95 hover:text-white underline transition cursor-pointer"
+              >
+                Vaciar
+              </button>
+            )}
           </div>
 
-          {carrito.length === 0 ? (
-            <div className="py-12 text-center space-y-2">
-              <p className="text-3xl">🛒</p>
-              <p className="text-slate-400 text-xs font-semibold">Tu carrito está vacío.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="divide-y divide-slate-800 max-h-60 overflow-y-auto space-y-3 pr-1">
-                {carrito.map((item) => (
-                  <div key={item.id} className="pt-3 first:pt-0 flex justify-between items-center text-xs">
-                    <div className="space-y-0.5">
-                      <h5 className="font-bold text-white">{item.nombre}</h5>
-                      <p className="text-orange-400 font-extrabold">${(item.precio * item.cantidad).toFixed(2)} MXN</p>
-                    </div>
-                    <div className="flex items-center gap-2 bg-[#0b0f19] rounded-xl p-1 border border-slate-800">
-                      <button onClick={() => cambiarCantidad(item.id, -1)} className="w-6 h-6 flex items-center justify-center font-bold text-slate-300 hover:bg-slate-800 rounded-lg transition">-</button>
-                      <span className="font-bold w-4 text-center text-white">{item.cantidad}</span>
-                      <button onClick={() => cambiarCantidad(item.id, 1)} className="w-6 h-6 flex items-center justify-center font-bold text-slate-300 hover:bg-slate-800 rounded-lg transition">+</button>
-                    </div>
-                  </div>
-                ))}
+          <div className="p-4 space-y-3.5">
+            {carrito.length === 0 ? (
+              <div className="py-7 text-center space-y-2 bg-[#070e14] rounded-xl border border-white/10 p-3.5">
+                <div className="icon-3d-pod w-16 h-16 rounded-2xl mx-auto flex items-center justify-center text-3xl">
+                  🛒
+                </div>
+                <p className="text-white text-xs font-bold">Tu carrito está vacío.</p>
+                <p className="text-slate-400 text-[11px]">Agrega un platillo del menú para armar tu orden.</p>
               </div>
-
-              <div className="border-t border-slate-800 pt-4 space-y-4">
-                <div className="flex justify-between items-center text-lg font-black text-white">
-                  <span>Total a pagar:</span>
-                  <span className="text-orange-400">${calcularTotal()} <span className="text-xs font-semibold text-slate-500">MXN</span></span>
+            ) : (
+              <div className="space-y-3.5">
+                <div className="divide-y divide-white/10 max-h-56 overflow-y-auto space-y-2.5 pr-1">
+                  {carrito.map((item) => (
+                    <div key={item.id} className="pt-2.5 first:pt-0 flex justify-between items-center text-xs gap-2">
+                      <div className="space-y-0.5 min-w-0">
+                        <h5 className="font-bold text-white truncate">{item.nombre}</h5>
+                        <p className="text-amber-400 font-extrabold">${(item.precio * item.cantidad).toFixed(2)} MXN</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-[#070e14] rounded-lg p-1 border border-white/15 shrink-0">
+                        <button type="button" onClick={() => cambiarCantidad(item.id, -1)} className="w-5 h-5 flex items-center justify-center font-bold text-slate-200 hover:bg-white/10 rounded-md transition cursor-pointer">-</button>
+                        <span className="font-bold w-4 text-center text-white text-[11px]">{item.cantidad}</span>
+                        <button type="button" onClick={() => cambiarCantidad(item.id, 1)} className="w-5 h-5 flex items-center justify-center font-bold text-slate-200 hover:bg-white/10 rounded-md transition cursor-pointer">+</button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
-                {!enLinea && (
-                  <div className="bg-amber-500/10 border border-amber-500/30 text-amber-200 p-3 rounded-2xl text-[11px] leading-relaxed">
-                    📡 Sin conexión. Tu selección se conserva aquí, pero el envío de pedidos se restablecerá hasta que vuelva la conexión. También puedes llamar al <span className="font-bold text-white">{comercio.telefono || comercio.telefonoComercio || "local"}</span>.
+                <div className="border-t border-white/10 pt-3 space-y-2.5">
+                  <div className="flex justify-between items-center text-sm font-black text-white bg-[#070e14] p-3 rounded-xl border border-amber-400/25">
+                    <span>Total a pagar:</span>
+                    <span className="text-amber-400">${calcularTotal()} MXN</span>
                   </div>
-                )}
 
-                <button
-                  onClick={() => setModalCheckout(true)}
-                  disabled={!enLinea}
-                  className={`w-full font-extrabold py-3.5 rounded-2xl transition duration-300 text-xs flex items-center justify-center gap-2 ${
-                    enLinea
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg shadow-emerald-600/25'
-                      : 'bg-slate-800 text-slate-400 border border-slate-700 cursor-not-allowed'
-                  }`}
-                >
-                  <span>{enLinea ? 'Proceder al Pago' : 'Pedidos disponibles al volver la conexión'}</span>
-                  <span>{enLinea ? '🚀' : '📡'}</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalCheckout(true)}
+                    disabled={!enLinea}
+                    className={`w-full font-black py-2.5 rounded-full transition text-xs flex items-center justify-center gap-2 cursor-pointer ${
+                      enLinea
+                        ? 'neon-btn-orange text-white'
+                        : 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    <span>{enLinea ? 'Proceder al Pago →' : 'Disponible al volver la conexión'}</span>
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
-      {/* MODAL CHECKOUT */}
       {modalCheckout && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-[#121826] rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-800 relative text-slate-100">
-            <div className="text-center mb-6">
-              <span className="text-3xl">🛍️</span>
-              <h3 className="text-xl font-black text-white mt-2">Finalizar Pedido</h3>
-              <p className="text-xs text-slate-400 font-medium">Estás a un paso de ordenar en {comercio.nombreComercio}.</p>
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="neon-amber-card bg-[#0e1b26] rounded-2xl max-w-md w-full p-6 relative text-slate-100">
+            <div className="text-center mb-4">
+              <div className="icon-3d-pod w-12 h-12 rounded-2xl mx-auto flex items-center justify-center text-2xl mb-1">
+                🛍️
+              </div>
+              <h3 className="text-lg font-black text-white">Finalizar Pedido</h3>
+              <p className="text-xs text-slate-400">Ordenando en {comercio.nombreComercio}.</p>
             </div>
 
-            {!enLinea && (
-              <div className="mb-4 bg-amber-500/15 border border-amber-500/40 text-amber-200 p-3 rounded-2xl text-xs text-center leading-relaxed">
-                📡 Se perdió la conexión. El envío de pedidos se restablecerá hasta que vuelva la conexión.
-              </div>
-            )}
-
             {pedidoEnviado ? (
-              <div className="py-10 text-center space-y-3">
-                <div className="animate-spin text-4xl">🍔</div>
-                <p className="font-bold text-xs text-orange-400">
-                  {mensajeRevision ? "🛡️ Tu comprobante está en revisión. Puede tardar aprox. 8 minutos en validarse..." : "Enviando orden al restaurante..."}
+              <div className="py-8 text-center space-y-2.5">
+                <div className="animate-spin text-3xl">🍔</div>
+                <p className="font-bold text-xs text-amber-400">
+                  {mensajeRevision ? "🛡️ Tu comprobante está en revisión (aprox. 8 min)..." : "Enviando orden al restaurante..."}
                 </p>
               </div>
             ) : (
-              <form onSubmit={realizarPedido} className="space-y-4">
+              <form onSubmit={realizarPedido} className="space-y-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Tu Nombre Completo</label>
-                  <input type="text" value={nombreCliente} onChange={(e) => setNombreCliente(e.target.value)} required placeholder="Ej. Juan Pérez" className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition" />
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Tu Nombre Completo</label>
+                  <input type="text" value={nombreCliente} onChange={(e) => setNombreCliente(e.target.value)} required placeholder="Ej. Juan Pérez" className="w-full px-3.5 py-2 bg-[#070e14] border border-white/15 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Teléfono de Contacto</label>
-                  <input type="tel" value={telefonoCliente} onChange={(e) => setTelefonoCliente(e.target.value)} required placeholder="Ej. 9381234567" className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition" />
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Teléfono de Contacto</label>
+                  <input type="tel" value={telefonoCliente} onChange={(e) => setTelefonoCliente(e.target.value)} required placeholder="Ej. 9381234567" className="w-full px-3.5 py-2 bg-[#070e14] border border-white/15 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Dirección de Entrega (Domicilio)</label>
-                  <input type="text" value={direccionCliente} onChange={(e) => setDireccionCliente(e.target.value)} required placeholder="Ej. Calle 10 x 21 y 23, Col. Centro" className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition" />
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Dirección de Entrega</label>
+                  <input type="text" value={direccionCliente} onChange={(e) => setDireccionCliente(e.target.value)} required placeholder="Ej. Calle 10 x 21 y 23, Col. Centro" className="w-full px-3.5 py-2 bg-[#070e14] border border-white/15 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Método de Pago</label>
-                  <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition font-medium">
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Método de Pago</label>
+                  <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full px-3.5 py-2 bg-[#070e14] border border-white/15 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400">
                     <option value="Efectivo">Efectivo</option>
                     <option value="Transferencia Bancaria">Transferencia Bancaria</option>
                   </select>
                 </div>
 
                 {metodoPago === 'Transferencia Bancaria' && (
-                  <div className="bg-[#0b0f19] p-4 rounded-2xl border border-orange-500/30 space-y-3">
-                    <div className="text-xs space-y-1">
-                      <p className="font-extrabold text-orange-400">🏦 Datos para Depositar / Transferir:</p>
-                      <p className="text-slate-300">Banco: <span className="font-bold text-white">{datosBancoRestaurante?.banco || "Azteca"}</span></p>
-                      <p className="text-slate-300">Cuenta/CLABE: <span className="font-bold text-white">{datosBancoRestaurante?.numeroCuenta || "4212 1212 3421 2345"}</span></p>
-                      <p className="text-slate-300">Titular: <span className="font-bold text-white">{datosBancoRestaurante?.titular || "Marcos Lopez"}</span></p>
+                  <div className="bg-[#070e14] p-3.5 rounded-xl border border-white/10 space-y-2.5">
+                    <div className="text-[11px] space-y-0.5">
+                      <p className="font-extrabold text-amber-400">🏦 Datos para Transferencia:</p>
+                      <p className="text-slate-300">Banco: <strong className="text-white">{datosBancoRestaurante?.banco || "Azteca"}</strong></p>
+                      <p className="text-slate-300">Cuenta/CLABE: <strong className="text-white">{datosBancoRestaurante?.numeroCuenta || "4212 1212 3421 2345"}</strong></p>
+                      <p className="text-slate-300">Titular: <strong className="text-white">{datosBancoRestaurante?.titular || "Marcos Lopez"}</strong></p>
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-300 mb-1">📤 Subir Comprobante (Captura)</label>
-                      <input 
-                        type="file" 
-                        accept="image/*" 
-                        onChange={handleArchivoChange} 
-                        required 
-                        className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-orange-600 file:text-white hover:file:bg-orange-700 cursor-pointer" 
+                      <label className="block text-[11px] font-bold text-slate-300 mb-1">📤 Subir Comprobante</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleArchivoChange}
+                        required
+                        className="w-full text-[11px] text-slate-300 file:mr-2.5 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-[11px] file:font-bold file:bg-amber-500 file:text-slate-950 cursor-pointer"
                       />
-                      {cargandoImagen && <p className="text-[11px] text-amber-400 mt-1 font-semibold animate-pulse">⏳ Comprimiendo imagen...</p>}
-                      {nombreArchivo && !cargandoImagen && <p className="text-[11px] text-emerald-400 mt-1 font-semibold">✓ Comprobante listo y optimizado: {nombreArchivo}</p>}
-                    </div>
-
-                    <div className="bg-amber-500/10 border border-amber-500/30 text-amber-300 p-2.5 rounded-xl text-[11px] font-semibold text-center leading-relaxed">
-                      🛡️ Tu comprobante se está revisando (puede tardar aprox. 8 minutos en lo que se valida la transferencia).
+                      {cargandoImagen && <p className="text-[10px] text-amber-300 mt-1 font-semibold">⏳ Comprimiendo imagen...</p>}
+                      {nombreArchivo && !cargandoImagen && <p className="text-[10px] text-emerald-400 mt-1 font-semibold">✓ Listo: {nombreArchivo}</p>}
                     </div>
                   </div>
                 )}
 
                 {metodoPago === 'Efectivo' && (
                   <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1">¿Pagas con cuánto? (Cambio)</label>
-                    <input type="text" value={cambioPara} onChange={(e) => setCambioPara(e.target.value)} placeholder="Ej. Billete de $200" className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition" />
+                    <label className="block text-[11px] font-bold text-slate-300 mb-1">¿Pagas con cuánto? (Cambio)</label>
+                    <input type="text" value={cambioPara} onChange={(e) => setCambioPara(e.target.value)} placeholder="Ej. Billete de $200" className="w-full px-3.5 py-2 bg-[#070e14] border border-white/15 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400" />
                   </div>
                 )}
 
-                <div className="flex gap-3 pt-3">
-                  <button type="button" onClick={() => setModalCheckout(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-3.5 rounded-2xl text-xs transition">Cancelar</button>
+                <div className="flex gap-2.5 pt-1.5">
+                  <button type="button" onClick={() => setModalCheckout(false)} className="flex-1 bg-[#172836] hover:bg-[#1f3446] text-slate-200 font-bold py-2.5 rounded-xl text-xs transition cursor-pointer">Cancelar</button>
                   <button
                     type="submit"
                     disabled={!enLinea}
-                    className={`flex-1 font-bold py-3.5 rounded-2xl text-xs transition ${
-                      enLinea
-                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg'
-                        : 'bg-slate-800 text-slate-400 border border-slate-700 cursor-not-allowed'
-                    }`}
+                    className="neon-btn-orange flex-1 text-white font-black py-2.5 rounded-xl text-xs transition cursor-pointer"
                   >
-                    {enLinea ? 'Confirmar Pedido' : 'Esperando conexión...'}
+                    Confirmar Pedido
                   </button>
                 </div>
               </form>

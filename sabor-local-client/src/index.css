@@ -1,1 +1,93 @@
 @import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #070e14;
+    color: #f8fafc;
+    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow-x: hidden;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #0c1722;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #22384b;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #f59e0b;
+  }
+}
+
+.neon-amber-card {
+  border: 1.5px solid rgba(251, 191, 36, 0.55);
+  box-shadow:
+    0 0 18px rgba(245, 158, 11, 0.22),
+    0 12px 28px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.neon-amber-card:hover {
+  border-color: rgba(253, 224, 71, 0.9);
+  box-shadow:
+    0 0 26px rgba(249, 115, 22, 0.42),
+    0 14px 32px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.neon-btn-orange {
+  background: linear-gradient(135deg, #fbbf24 0%, #f97316 52%, #ea580c 100%);
+  box-shadow:
+    0 0 16px rgba(249, 115, 22, 0.5),
+    0 4px 12px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.neon-btn-orange:hover {
+  box-shadow:
+    0 0 24px rgba(251, 191, 36, 0.75),
+    0 6px 16px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.neon-btn-violet {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+  box-shadow:
+    0 0 16px rgba(139, 92, 246, 0.48),
+    0 4px 12px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.neon-search-bar {
+  background: linear-gradient(90deg, rgba(17, 36, 68, 0.96), rgba(24, 48, 88, 0.96));
+  border: 1.5px solid rgba(56, 189, 248, 0.55);
+  box-shadow:
+    0 0 18px rgba(56, 189, 248, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.icon-3d-pod {
+  background: radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.18), rgba(15, 28, 40, 0.92) 70%);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.5),
+    0 0 14px rgba(245, 158, 11, 0.2),
+    inset 0 1px 1px rgba(255, 255, 255, 0.28);
+}
+
+.hero-headline-3d {
+  text-shadow:
+    0 2px 0 #7c2d12,
+    0 4px 0 #431407,
+    0 8px 20px rgba(0, 0, 0, 0.6),
+    0 0 22px rgba(251, 191, 36, 0.35);
+}
