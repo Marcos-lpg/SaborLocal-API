@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from 'react';
 import api from './ApiClient';
 import VerificacionCodigo from './VerificacionCodigo';
@@ -106,9 +107,9 @@ function RegistroRestaurante({ onRegistroExitoso }) {
   }
 
   return (
-    <div className="max-w-xl mx-auto my-10 bg-[#121826] p-8 rounded-3xl shadow-2xl border border-slate-800 text-slate-100">
+    <div className="max-w-xl mx-auto my-10 neon-amber-card bg-[#0e1b26] p-8 rounded-3xl text-slate-100">
       {notificacion && (
-        <div className="mb-5 bg-emerald-500/20 border border-emerald-400/50 text-emerald-200 px-4 py-3 rounded-2xl text-xs font-bold flex items-center justify-between gap-2">
+        <div className="mb-5 bg-emerald-500/15 border border-emerald-400/50 text-emerald-200 px-4 py-3 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 shadow-[0_0_14px_rgba(16,185,129,0.25)]">
           <span>🎉 {notificacion.mensaje}</span>
           <button
             type="button"
@@ -121,7 +122,7 @@ function RegistroRestaurante({ onRegistroExitoso }) {
       )}
 
       <div className="text-center space-y-2 mb-8">
-        <div className="w-12 h-12 bg-gradient-to-tr from-purple-600 to-indigo-500 rounded-2xl flex items-center justify-center text-2xl mx-auto shadow-lg shadow-purple-500/20">
+        <div className="icon-3d-pod w-12 h-12 rounded-2xl flex items-center justify-center text-2xl mx-auto">
           🏪
         </div>
         <h2 className="text-2xl font-black text-white tracking-tight">Registro de Restaurante</h2>
@@ -131,7 +132,7 @@ function RegistroRestaurante({ onRegistroExitoso }) {
       </div>
 
       {error && (
-        <div className="bg-red-500/10 border border-red-500/30 text-red-400 p-3.5 rounded-2xl text-center text-xs font-semibold mb-6">
+        <div className="bg-red-500/15 border border-red-400/50 text-red-200 p-3.5 rounded-2xl text-center text-xs font-semibold mb-6">
           {error}
         </div>
       )}
@@ -148,7 +149,7 @@ function RegistroRestaurante({ onRegistroExitoso }) {
               autoComplete="off"
               required
               placeholder="Ej. Carnitas El Tao Tao"
-              className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
+              className="w-full px-4 py-3 bg-[#070e14] border border-white/15 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 transition font-medium"
             />
           </div>
 
@@ -161,7 +162,7 @@ function RegistroRestaurante({ onRegistroExitoso }) {
               onChange={handleChange}
               autoComplete="off"
               placeholder="Ej. Carnitas / Antojitos"
-              className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
+              className="w-full px-4 py-3 bg-[#070e14] border border-white/15 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 transition font-medium"
             />
           </div>
         </div>
@@ -176,7 +177,7 @@ function RegistroRestaurante({ onRegistroExitoso }) {
             autoComplete="off"
             required
             placeholder="Ej. Calle 8 Guanajuato, Candelaria"
-            className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
+            className="w-full px-4 py-3 bg-[#070e14] border border-white/15 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 transition font-medium"
           />
         </div>
 
@@ -194,7 +195,7 @@ function RegistroRestaurante({ onRegistroExitoso }) {
               autoComplete="off"
               required
               placeholder="Ej. 9821165370"
-              className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
+              className="w-full px-4 py-3 bg-[#070e14] border border-white/15 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 transition font-medium"
             />
           </div>
 
@@ -207,13 +208,13 @@ function RegistroRestaurante({ onRegistroExitoso }) {
               onChange={handleChange}
               autoComplete="off"
               placeholder="Ej. Efectivo, Transferencia"
-              className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
+              className="w-full px-4 py-3 bg-[#070e14] border border-white/15 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 transition font-medium"
             />
           </div>
         </div>
 
-        <div className="border-t border-slate-800/80 pt-4 mt-2">
-          <h3 className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-4">Credenciales del Dueño</h3>
+        <div className="border-t border-white/10 pt-4 mt-2">
+          <h3 className="text-xs font-bold text-amber-300 uppercase tracking-wider mb-4">Credenciales del Dueño</h3>
 
           <div className="space-y-4">
             <div>
@@ -226,7 +227,7 @@ function RegistroRestaurante({ onRegistroExitoso }) {
                 autoComplete="off"
                 required
                 placeholder="Ej. Marcos Antonio"
-                className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
+                className="w-full px-4 py-3 bg-[#070e14] border border-white/15 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 transition font-medium"
               />
             </div>
 
@@ -241,7 +242,7 @@ function RegistroRestaurante({ onRegistroExitoso }) {
                   autoComplete="off"
                   required
                   placeholder="tucorreo@gmail.com"
-                  className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
+                  className="w-full px-4 py-3 bg-[#070e14] border border-white/15 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 transition font-medium"
                 />
               </div>
 
@@ -255,7 +256,7 @@ function RegistroRestaurante({ onRegistroExitoso }) {
                   autoComplete="new-password"
                   required
                   placeholder="••••••••"
-                  className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
+                  className="w-full px-4 py-3 bg-[#070e14] border border-white/15 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 transition font-medium"
                 />
               </div>
             </div>
@@ -264,7 +265,7 @@ function RegistroRestaurante({ onRegistroExitoso }) {
 
         <button
           type="submit"
-          className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-extrabold py-3.5 rounded-2xl text-xs shadow-xl shadow-purple-600/25 transition duration-300 mt-4 cursor-pointer"
+          className="neon-btn-orange w-full text-white font-black py-3.5 rounded-2xl text-xs transition duration-300 mt-4 cursor-pointer"
         >
           Enviar Solicitud y Verificar Correo ✉️
         </button>

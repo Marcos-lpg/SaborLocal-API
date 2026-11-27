@@ -100,9 +100,9 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
   }
 
   return (
-    <div className="max-w-md mx-auto my-12 bg-[#121826] p-8 rounded-3xl shadow-2xl border border-slate-800 text-slate-100 relative">
+    <div className="max-w-md mx-auto my-10 neon-amber-card bg-[#0e1b26] p-8 rounded-3xl text-slate-100 relative">
       {notificacion && (
-        <div className="mb-4 bg-emerald-500/20 border border-emerald-400/50 text-emerald-200 px-4 py-3 rounded-2xl text-xs font-bold flex items-center justify-between gap-2">
+        <div className="mb-4 bg-emerald-500/15 border border-emerald-400/50 text-emerald-200 px-4 py-3 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 shadow-[0_0_14px_rgba(16,185,129,0.25)]">
           <span>✅ {notificacion.mensaje}</span>
           <button
             type="button"
@@ -115,7 +115,7 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
       )}
 
       <div className="text-center space-y-2 mb-6">
-        <div className="w-12 h-12 bg-gradient-to-tr from-purple-600 to-indigo-500 rounded-2xl flex items-center justify-center text-2xl mx-auto shadow-lg shadow-purple-500/20">
+        <div className="icon-3d-pod w-12 h-12 rounded-2xl flex items-center justify-center text-2xl mx-auto">
           👤
         </div>
         <h2 className="text-2xl font-black text-white tracking-tight">Registro de Cliente</h2>
@@ -125,7 +125,7 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
       </div>
 
       {error && (
-        <div className="bg-red-500/10 border border-red-500/30 text-red-400 p-3.5 rounded-2xl text-center text-xs font-semibold mb-4">
+        <div className="bg-red-500/15 border border-red-400/50 text-red-200 p-3.5 rounded-2xl text-center text-xs font-semibold mb-4">
           {error}
         </div>
       )}
@@ -141,7 +141,7 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
             autoComplete="off"
             required
             placeholder="Ej. Juan Pérez"
-            className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
+            className="w-full px-4 py-3 bg-[#070e14] border border-white/15 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 transition font-medium"
           />
         </div>
 
@@ -158,7 +158,7 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
             autoComplete="off"
             required
             placeholder="Ej. 9381234567"
-            className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
+            className="w-full px-4 py-3 bg-[#070e14] border border-white/15 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 transition font-medium"
           />
         </div>
 
@@ -172,7 +172,7 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
             autoComplete="off"
             required
             placeholder="tu_correo@gmail.com"
-            className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
+            className="w-full px-4 py-3 bg-[#070e14] border border-white/15 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 transition font-medium"
           />
         </div>
 
@@ -186,23 +186,23 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
             autoComplete="new-password"
             required
             placeholder="••••••••"
-            className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
+            className="w-full px-4 py-3 bg-[#070e14] border border-white/15 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-400 transition font-medium"
           />
         </div>
 
         <button
           type="submit"
-          className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-extrabold py-3.5 rounded-2xl text-xs shadow-xl shadow-purple-600/25 transition duration-300 mt-2 cursor-pointer"
+          className="neon-btn-orange w-full text-white font-black py-3.5 rounded-2xl text-xs transition duration-300 mt-2 cursor-pointer"
         >
           Continuar y Verificar Correo →
         </button>
       </form>
 
-      <div className="text-center pt-6 border-t border-slate-800/80 mt-6">
+      <div className="text-center pt-6 border-t border-white/10 mt-6">
         <button
           type="button"
           onClick={onVolver}
-          className="text-xs text-slate-400 hover:text-white font-bold underline transition cursor-pointer"
+          className="text-xs text-amber-300 hover:text-amber-200 font-bold underline transition cursor-pointer"
         >
           ← Volver a opciones de registro
         </button>
