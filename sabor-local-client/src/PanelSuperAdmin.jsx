@@ -6,6 +6,12 @@ function PanelSuperAdmin() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toastNoti, setToastNoti] = useState(null);
+  const [confirmacionEliminar, setConfirmacionEliminar] = useState(null);
+
+  const mostrarToast = (mensaje, tipo = 'exito') => {
+    setToastNoti({ mensaje, tipo });
+    setTimeout(() => setToastNoti(null), 3500);
+  };
 
   const cargarComerciosAdmin = async () => {
     try {
@@ -36,23 +42,24 @@ function PanelSuperAdmin() {
   const cambiarEstadoComercio = async (id, nuevoEstado) => {
     try {
       await api.put(`/comercios/estado/${id}`, { estado: nuevoEstado });
-      setToastNoti(`Comercio actualizado a: ${nuevoEstado}`);
-      setTimeout(() => setToastNoti(null), 3000);
+      mostrarToast(`Comercio actualizado a: ${nuevoEstado}`, 'exito');
       cargarComerciosAdmin();
     } catch {
-      alert("No se pudo actualizar el estado del comercio.");
+      mostrarToast("No se pudo actualizar el estado del comercio.", 'error');
     }
   };
 
-  const eliminarComercio = async (id, nombre) => {
-    if (!window.confirm(`¿Estás seguro de eliminar permanentemente a '${nombre}'?`)) return;
+  const confirmarEliminacionComercio = async () => {
+    if (!confirmacionEliminar) return;
+    const { id, nombre } = confirmacionEliminar;
+    setConfirmacionEliminar(null);
+
     try {
       await api.delete(`/comercios/${id}`);
-      setToastNoti(`Comercio '${nombre}' eliminado.`);
-      setTimeout(() => setToastNoti(null), 3000);
+      mostrarToast(`Comercio '${nombre}' eliminado.`, 'exito');
       cargarComerciosAdmin();
     } catch {
-      alert("No se pudo eliminar el comercio.");
+      mostrarToast("No se pudo eliminar el comercio.", 'error');
     }
   };
 
@@ -60,13 +67,28 @@ function PanelSuperAdmin() {
     <div className="max-w-5xl mx-auto space-y-5 relative text-slate-100">
 
       {toastNoti && (
-        <div className="bg-emerald-500/20 border border-emerald-400/50 text-emerald-200 text-xs px-4 py-2.5 rounded-xl flex items-center gap-2 z-50 shadow-[0_0_16px_rgba(16,185,129,0.3)]">
-          <span>🛡️</span>
-          <span className="font-bold">{toastNoti}</span>
+        <div
+          className={`text-xs px-4 py-2.5 rounded-xl flex items-center justify-between gap-2 z-50 border ${
+            toastNoti.tipo === 'error'
+              ? 'bg-rose-500/20 border-rose-400/50 text-rose-200 shadow-[0_0_16px_rgba(244,63,94,0.3)]'
+              : 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200 shadow-[0_0_16px_rgba(16,185,129,0.3)]'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <span>{toastNoti.tipo === 'error' ? '⚠️' : '🛡️'}</span>
+            <span className="font-bold">{toastNoti.mensaje}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToastNoti(null)}
+            className="text-white/75 hover:text-white cursor-pointer"
+          >
+            ✕
+          </button>
         </div>
       )}
 
-      {/* Banner Índigo / Violeta con Curva Ondulada Dorada (estilo image_3612f6.png) */}
+      {/* Banner Índigo / Violeta con Curva Ondulada Dorada */}
       <div
         className="relative overflow-hidden rounded-2xl border-2 border-violet-400/65 bg-[#231d52] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 min-h-[128px]"
         style={{
@@ -74,7 +96,6 @@ function PanelSuperAdmin() {
             '0 0 26px rgba(139, 92, 246, 0.35), 0 14px 32px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.14)'
         }}
       >
-        {/* Curva ondulada dorada a la derecha */}
         <svg
           aria-hidden="true"
           viewBox="0 0 360 140"
@@ -107,9 +128,7 @@ function PanelSuperAdmin() {
         </div>
 
         <div className="relative z-10 px-6 sm:pr-7 pb-4 sm:pb-0 flex items-center gap-2.5 shrink-0">
-          <span
-            className="hidden md:inline-flex items-center gap-1.5 bg-[#261f59] text-white border border-violet-300/40 px-3.5 py-1.5 rounded-full text-[11px] font-extrabold shadow-md"
-          >
+          <span className="hidden md:inline-flex items-center gap-1.5 bg-[#261f59] text-white border border-violet-300/40 px-3.5 py-1.5 rounded-full text-[11px] font-extrabold shadow-md">
             <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
             <span>Gobernanza Super Admin</span>
           </span>
@@ -134,7 +153,7 @@ function PanelSuperAdmin() {
         </div>
       )}
 
-      {/* Tarjeta Crema Cálido / Dorada "Solicitudes y Comercios Registrados" */}
+      {/* Tarjeta Crema Cálido / Dorada */}
       <div
         className="bg-[#f3e5c6] text-[#1c1917] p-5 sm:p-6 rounded-2xl border-2 border-amber-300/80 space-y-4"
         style={{ boxShadow: '0 0 22px rgba(251, 191, 36, 0.25), 0 14px 32px rgba(0, 0, 0, 0.6)' }}
@@ -223,7 +242,7 @@ function PanelSuperAdmin() {
 
                         <button
                           type="button"
-                          onClick={() => eliminarComercio(com.id, com.nombreComercio)}
+                          onClick={() => setConfirmacionEliminar({ id: com.id, nombre: com.nombreComercio })}
                           className="bg-red-600 hover:bg-red-700 text-white font-bold px-2.5 py-1 rounded-full text-[10px] transition cursor-pointer inline-flex items-center gap-1 shadow-[0_0_12px_rgba(220,38,38,0.45)]"
                         >
                           <span>Eliminar</span>
@@ -238,6 +257,46 @@ function PanelSuperAdmin() {
           </div>
         )}
       </div>
+
+      {/* Modal de Confirmación dentro de la App */}
+      {confirmacionEliminar && (
+        <div
+          onClick={() => setConfirmacionEliminar(null)}
+          className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="neon-amber-card bg-[#0e1b26] rounded-2xl max-w-sm w-full p-6 space-y-4 text-slate-100"
+          >
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-black uppercase tracking-wider text-rose-400">
+                Confirmar Acción
+              </span>
+              <h3 className="text-base font-black text-white">Eliminar Comercio</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                ¿Estás seguro de eliminar permanentemente a <strong className="text-white">{confirmacionEliminar.nombre}</strong>?
+              </p>
+            </div>
+
+            <div className="flex gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setConfirmacionEliminar(null)}
+                className="flex-1 bg-[#172836] hover:bg-[#1f3446] text-slate-200 font-bold py-2.5 rounded-xl text-xs transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarEliminacionComercio}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-black py-2.5 rounded-xl text-xs transition cursor-pointer"
+              >
+                Sí, Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

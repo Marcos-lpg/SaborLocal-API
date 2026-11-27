@@ -1,5 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from './ApiClient';
+
+const formatearEstadoHistorial = (estadoRaw) => {
+  const st = String(estadoRaw || 'RECIBIDO').toUpperCase().trim();
+  if (st === 'RECIBIDO' || st === 'PENDIENTE') return 'Recibido';
+  if (st === 'EN_PREPARACION' || st === 'PREPARANDO') return 'Pedido en preparación';
+  if (st === 'HACIA_DOMICILIO') return 'Hacia tu domicilio';
+  if (st === 'COMPLETADO' || st === 'ENTREGADO') return 'Pedido entregado';
+  return estadoRaw || 'Recibido';
+};
 
 function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver }) {
   const [historial, setHistorial] = useState([]);
@@ -8,11 +17,85 @@ function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver }
   const [errorMsg, setErrorMsg] = useState('');
   const [pedidoDetalle, setPedidoDetalle] = useState(null);
 
-  const cargarHistorial = async () => {
-    setLoading(true);
+  const comerciosRef = useRef(comercios);
+  comerciosRef.current = comercios;
+
+  const historialRef = useRef([]);
+  const cargandoRef = useRef(false);
+
+  const consolidarPorRestaurante = (lista) => {
+    const porComercio = new Map();
+
+    const ordenados = [...lista].sort(
+      (a, b) => new Date(b.fechaCreacion || 0) - new Date(a.fechaCreacion || 0)
+    );
+
+    ordenados.forEach((item) => {
+      const comercioKey = String(
+        item.tenantId ??
+          item.comercioId ??
+          item.restauranteId ??
+          item.idComercio ??
+          (item.nombreComercio || '').trim().toLowerCase()
+      );
+
+      if (!comercioKey) return;
+
+      const existente = porComercio.get(comercioKey);
+      if (!existente) {
+        porComercio.set(comercioKey, item);
+      } else {
+        const fechaActual = new Date(item.fechaCreacion || 0).getTime();
+        const fechaGuardada = new Date(existente.fechaCreacion || 0).getTime();
+        if (fechaActual >= fechaGuardada) {
+          porComercio.set(comercioKey, item);
+        }
+      }
+    });
+
+    return Array.from(porComercio.values()).sort(
+      (a, b) => new Date(b.fechaCreacion || 0) - new Date(a.fechaCreacion || 0)
+    );
+  };
+
+  const construirFirmaHistorial = (lista) => {
+    return JSON.stringify(
+      (lista || []).map((item) => ({
+        tenantId: item.tenantId,
+        idVisual: item.idVisual,
+        estado: item.estado,
+        total: Number(item.total || 0),
+        fechaCreacion: item.fechaCreacion,
+        nombreComercio: item.nombreComercio
+      }))
+    );
+  };
+
+  const aplicarHistorialSiCambio = (nuevaLista) => {
+    const firmaAnterior = construirFirmaHistorial(historialRef.current);
+    const firmaNueva = construirFirmaHistorial(nuevaLista);
+    if (firmaAnterior !== firmaNueva) {
+      historialRef.current = nuevaLista;
+      setHistorial(nuevaLista);
+      try {
+        localStorage.setItem('mis_pedidos', JSON.stringify(nuevaLista));
+      } catch {
+        // Ignorar error de almacenamiento
+      }
+    }
+  };
+
+  const cargarHistorial = async ({ mostrarCargando = false } = {}) => {
+    if (cargandoRef.current) return;
+    cargandoRef.current = true;
+
+    if (mostrarCargando) {
+      setLoading(true);
+    }
     setErrorMsg('');
 
     const telefonoGuardado = (localStorage.getItem('clienteTelefono') || '').trim();
+    const catalogoComercios = comerciosRef.current || [];
 
     const obtenerLocales = () => {
       const posiblesClaves = ['mis_pedidos', 'historial_compras', 'pedidos_cliente', 'pedidos'];
@@ -72,15 +155,31 @@ function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver }
         const rawId = p.pedidoId || p.id || idx + 1;
         const key = String(rawId);
         const previo = mapaPedidos.get(key) || {};
-        const restoInfo = comercios.find(c => c.id === p.tenantId) || {};
+        const restoInfo = catalogoComercios.find(c => Number(c.id) === Number(p.tenantId)) || {};
         mapaPedidos.set(key, {
           ...previo,
           pedidoId: rawId,
-          idVisual: String(rawId).startsWith('ORD-') || String(rawId).startsWith('local-') ? String(rawId) : `ORD-${rawId}`,
+          idVisual:
+            String(rawId).startsWith('ORD-') || String(rawId).startsWith('local-')
+              ? String(rawId)
+              : `ORD-${rawId}`,
           tenantId: p.tenantId || previo.tenantId || 1,
-          nombreComercio: p.nombreComercio || previo.nombreComercio || restoInfo.nombreComercio || `Restaurante #${p.tenantId || 1}`,
-          direccionComercio: p.direccionComercio || previo.direccionComercio || restoInfo.direccion || 'Candelaria, Campeche',
-          telefonoComercio: p.telefonoComercio || previo.telefonoComercio || restoInfo.telefono || restoInfo.telefonoComercio || 'Sin teléfono',
+          nombreComercio:
+            p.nombreComercio ||
+            previo.nombreComercio ||
+            restoInfo.nombreComercio ||
+            `Restaurante #${p.tenantId || 1}`,
+          direccionComercio:
+            p.direccionComercio ||
+            previo.direccionComercio ||
+            restoInfo.direccion ||
+            'Candelaria, Campeche',
+          telefonoComercio:
+            p.telefonoComercio ||
+            previo.telefonoComercio ||
+            restoInfo.telefono ||
+            restoInfo.telefonoComercio ||
+            'Sin teléfono',
           total: p.total ?? previo.total ?? 0,
           estado: p.estado || previo.estado || 'RECIBIDO',
           fechaCreacion: p.fechaCreacion || previo.fechaCreacion || new Date().toISOString(),
@@ -88,10 +187,8 @@ function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver }
         });
       });
 
-      const listaFinal = Array.from(mapaPedidos.values()).sort(
-        (a, b) => new Date(b.fechaCreacion) - new Date(a.fechaCreacion)
-      );
-      setHistorial(listaFinal);
+      const listaConsolidada = consolidarPorRestaurante(Array.from(mapaPedidos.values()));
+      aplicarHistorialSiCambio(listaConsolidada);
     } catch {
       const listaLocal = locales.map((loc, idx) => {
         const rawId = loc.pedidoId || loc.id || loc.codigo || `ORD-${idx + 1}`;
@@ -109,22 +206,30 @@ function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver }
           detalles: loc.detalles || []
         };
       });
-      setHistorial(listaLocal);
+      aplicarHistorialSiCambio(consolidarPorRestaurante(listaLocal));
     } finally {
+      cargandoRef.current = false;
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    cargarHistorial();
-  }, [comercios]);
+    cargarHistorial({ mostrarCargando: true });
+    const intervalo = setInterval(() => {
+      cargarHistorial({ mostrarCargando: false });
+    }, 5000);
+
+    return () => clearInterval(intervalo);
+  }, []);
 
   const historialFiltrado = historial.filter((item) =>
     (item.nombreComercio || '').toLowerCase().includes(busqueda.toLowerCase())
   );
 
   const abrirRestauranteDesdePedido = (item) => {
-    const comercioEncontrado = comercios.find(c => c.id === item.tenantId);
+    const comercioEncontrado = (comerciosRef.current || []).find(
+      c => Number(c.id) === Number(item.tenantId)
+    );
     const objetoComercio = comercioEncontrado || {
       id: item.tenantId || 1,
       nombreComercio: item.nombreComercio || 'Restaurante Local',
@@ -160,7 +265,7 @@ function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver }
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <button
             type="button"
-            onClick={cargarHistorial}
+            onClick={() => cargarHistorial({ mostrarCargando: false })}
             className="text-xs bg-[#122332] hover:bg-[#193044] text-slate-200 px-3.5 py-2 rounded-xl font-bold transition border border-white/15 cursor-pointer"
           >
             🔄 Actualizar
@@ -220,76 +325,81 @@ function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver }
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {historialFiltrado.map((item, idx) => (
-            <div
-              key={`${item.idVisual}-${idx}`}
-              className="neon-amber-card bg-gradient-to-b from-[#152736] to-[#0c1822] p-5 rounded-2xl transition flex flex-col justify-between gap-4"
-            >
-              <div className="space-y-2.5">
-                <div className="flex justify-between items-center gap-2">
-                  <span className="font-mono text-[10px] font-bold text-amber-200 bg-[#070e14] border border-white/15 px-2.5 py-0.5 rounded-full">
-                    {item.idVisual}
-                  </span>
-                  <span
-                    className={`text-[10px] px-2.5 py-0.5 rounded-md font-black uppercase ${
-                      item.estado === 'COMPLETADO'
-                        ? 'bg-emerald-500 text-white shadow-[0_0_10px_rgba(16,185,129,0.6)]'
-                        : item.estado === 'CANCELADO'
-                        ? 'bg-red-600 text-white'
-                        : 'bg-amber-500/20 text-amber-300 border border-amber-400/35'
-                    }`}
+          {historialFiltrado.map((item) => {
+            const estadoUpper = String(item.estado || 'RECIBIDO').toUpperCase().trim();
+            const estadoTexto = formatearEstadoHistorial(item.estado);
+
+            return (
+              <div
+                key={`comercio-${item.tenantId}-${item.idVisual}`}
+                className="neon-amber-card bg-gradient-to-b from-[#152736] to-[#0c1822] p-5 rounded-2xl flex flex-col justify-between gap-4"
+              >
+                <div className="space-y-2.5">
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="font-mono text-[10px] font-bold text-amber-200 bg-[#070e14] border border-white/15 px-2.5 py-0.5 rounded-full">
+                      {item.idVisual}
+                    </span>
+                    <span
+                      className={`text-[10px] px-2.5 py-0.5 rounded-md font-extrabold ${
+                        estadoUpper === 'COMPLETADO' || estadoUpper === 'ENTREGADO'
+                          ? 'bg-emerald-500 text-white shadow-[0_0_10px_rgba(16,185,129,0.6)]'
+                          : estadoUpper === 'CANCELADO'
+                          ? 'bg-red-600 text-white'
+                          : 'bg-amber-500/20 text-amber-300 border border-amber-400/35'
+                      }`}
+                    >
+                      {estadoTexto}
+                    </span>
+                  </div>
+
+                  <div>
+                    <h3 className="text-lg font-black text-white leading-snug">
+                      🏪 {item.nombreComercio}
+                    </h3>
+                    <p className="text-[11px] text-slate-300 mt-1">
+                      📍 {item.direccionComercio || 'Candelaria, Campeche'}
+                    </p>
+                    <p className="text-[11px] text-slate-300 mt-0.5">
+                      📞 {item.telefonoComercio || 'Sin teléfono'}
+                    </p>
+                  </div>
+
+                  <div className="flex justify-between items-center pt-2.5 border-t border-white/10 text-xs gap-2">
+                    <span className="text-[11px] text-slate-400 font-medium">
+                      📅{' '}
+                      {new Date(item.fechaCreacion).toLocaleDateString('es-MX', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </span>
+                    <span className="text-sm font-black text-amber-400 whitespace-nowrap">
+                      ${Number(item.total || 0).toFixed(2)} MXN
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex gap-2.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setPedidoDetalle(item)}
+                    className="flex-1 bg-[#122332] hover:bg-[#193044] text-slate-200 font-bold py-2 px-3 rounded-xl text-xs transition border border-white/15 cursor-pointer"
                   >
-                    {item.estado || 'RECIBIDO'}
-                  </span>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-black text-white leading-snug">
-                    🏪 {item.nombreComercio}
-                  </h3>
-                  <p className="text-[11px] text-slate-300 mt-1">
-                    📍 {item.direccionComercio || 'Candelaria, Campeche'}
-                  </p>
-                  <p className="text-[11px] text-slate-300 mt-0.5">
-                    📞 {item.telefonoComercio || 'Sin teléfono'}
-                  </p>
-                </div>
-
-                <div className="flex justify-between items-center pt-2.5 border-t border-white/10 text-xs gap-2">
-                  <span className="text-[11px] text-slate-400 font-medium">
-                    📅{' '}
-                    {new Date(item.fechaCreacion).toLocaleDateString('es-MX', {
-                      day: '2-digit',
-                      month: 'short',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </span>
-                  <span className="text-sm font-black text-amber-400 whitespace-nowrap">
-                    ${Number(item.total || 0).toFixed(2)} MXN
-                  </span>
+                    Ver Detalles
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => abrirRestauranteDesdePedido(item)}
+                    className="neon-btn-orange flex-1 text-white font-black py-2 px-3 rounded-full text-xs transition cursor-pointer"
+                  >
+                    Ir al Restaurante →
+                  </button>
                 </div>
               </div>
-
-              <div className="flex gap-2.5 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setPedidoDetalle(item)}
-                  className="flex-1 bg-[#122332] hover:bg-[#193044] text-slate-200 font-bold py-2 px-3 rounded-xl text-xs transition border border-white/15 cursor-pointer"
-                >
-                  Ver Detalles
-                </button>
-                <button
-                  type="button"
-                  onClick={() => abrirRestauranteDesdePedido(item)}
-                  className="neon-btn-orange flex-1 text-white font-black py-2 px-3 rounded-full text-xs transition cursor-pointer"
-                >
-                  Ir al Restaurante →
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -313,7 +423,7 @@ function HistorialCompras({ comercios = [], onSeleccionarRestaurante, onVolver }
 
             <div className="bg-[#070e14] p-3.5 rounded-xl border border-white/10 space-y-1 text-xs">
               <p className="text-slate-300">
-                <strong className="text-white">Estado:</strong> {pedidoDetalle.estado || 'RECIBIDO'}
+                <strong className="text-white">Estado:</strong> {formatearEstadoHistorial(pedidoDetalle.estado)}
               </p>
               <p className="text-slate-300">
                 <strong className="text-white">Dirección del local:</strong> {pedidoDetalle.direccionComercio || 'Candelaria, Campeche'}

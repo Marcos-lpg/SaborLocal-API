@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from './ApiClient';
 import VerificacionCodigo from './VerificacionCodigo';
 
@@ -12,48 +12,80 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
 
   const [pasoVerificacion, setPasoVerificacion] = useState(false);
   const [error, setError] = useState(null);
+  const [notificacion, setNotificacion] = useState(null);
+  const timerNotiRef = useRef(null);
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+  useEffect(() => {
+    return () => clearTimeout(timerNotiRef.current);
+  }, []);
+
+  const mostrarNotificacion = (mensaje, tipo = 'exito') => {
+    setNotificacion({ mensaje, tipo });
+    clearTimeout(timerNotiRef.current);
+    timerNotiRef.current = setTimeout(() => {
+      setNotificacion(null);
+    }, 4500);
   };
 
-  // Paso 1: Validar formulario y abrir pantalla de código OTP
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    if (name === 'telefono') {
+      const soloNumeros = value.replace(/\D/g, '').slice(0, 10);
+      setFormData({ ...formData, telefono: soloNumeros });
+      return;
+    }
+    setFormData({ ...formData, [name]: value });
+  };
+
   const handleContinuarAVerificacion = (e) => {
     e.preventDefault();
     setError(null);
-    if (!formData.correo) {
+
+    if (!formData.correo.trim()) {
       setError("Por favor ingresa un correo electrónico válido.");
       return;
     }
+
+    if (formData.telefono.length !== 10) {
+      setError("El teléfono móvil debe tener exactamente 10 dígitos numéricos.");
+      return;
+    }
+
     setPasoVerificacion(true);
   };
 
-  // Paso 2: Cuando el código OTP sea correcto, guardar el cliente en los verificados autorizados
   const completarRegistroCliente = async () => {
     const emailLower = formData.correo.toLowerCase().trim();
 
     try {
-      await api.post('/auth/registro-cliente', formData);
-    } catch (err) {
+      await api.post('/auth/registro-cliente', {
+        ...formData,
+        telefono: formData.telefono.trim()
+      });
+    } catch {
       console.warn("Registrando cliente localmente tras verificación exitosa.");
     }
 
-    // GUARDAR EN LA LISTA DE CLIENTES VERIFICADOS (Seguridad estricta para el Login)
     const clientesVerificados = JSON.parse(localStorage.getItem('clientes_verificados') || '[]');
-    
-    // Evitar duplicados
     const existe = clientesVerificados.some(c => c.correo === emailLower);
     if (!existe) {
       clientesVerificados.push({
         correo: emailLower,
-        nombreCompleto: formData.nombreCompleto,
+        nombreCompleto: formData.nombreCompleto.trim(),
+        telefono: formData.telefono.trim(),
         contrasena: formData.contrasena
       });
       localStorage.setItem('clientes_verificados', JSON.stringify(clientesVerificados));
     }
 
-    alert("🎉 ¡Correo verificado con éxito! Cuenta de cliente creada. Ya puedes iniciar sesión.");
-    if (onRegistroExitoso) onRegistroExitoso();
+    mostrarNotificacion(
+      "¡Correo verificado con éxito! Cuenta de cliente creada. Ya puedes iniciar sesión.",
+      "exito"
+    );
+
+    setTimeout(() => {
+      if (onRegistroExitoso) onRegistroExitoso();
+    }, 1200);
   };
 
   if (pasoVerificacion) {
@@ -68,7 +100,20 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
   }
 
   return (
-    <div className="max-w-md mx-auto my-12 bg-[#121826] p-8 rounded-3xl shadow-2xl border border-slate-800 text-slate-100">
+    <div className="max-w-md mx-auto my-12 bg-[#121826] p-8 rounded-3xl shadow-2xl border border-slate-800 text-slate-100 relative">
+      {notificacion && (
+        <div className="mb-4 bg-emerald-500/20 border border-emerald-400/50 text-emerald-200 px-4 py-3 rounded-2xl text-xs font-bold flex items-center justify-between gap-2">
+          <span>✅ {notificacion.mensaje}</span>
+          <button
+            type="button"
+            onClick={() => setNotificacion(null)}
+            className="text-emerald-100 hover:text-white cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <div className="text-center space-y-2 mb-6">
         <div className="w-12 h-12 bg-gradient-to-tr from-purple-600 to-indigo-500 rounded-2xl flex items-center justify-center text-2xl mx-auto shadow-lg shadow-purple-500/20">
           👤
@@ -85,7 +130,7 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
         </div>
       )}
 
-      <form onSubmit={handleContinuarAVerificacion} className="space-y-4">
+      <form onSubmit={handleContinuarAVerificacion} autoComplete="off" className="space-y-4">
         <div>
           <label className="block text-xs font-bold text-slate-300 mb-1.5">Nombre Completo</label>
           <input
@@ -93,6 +138,7 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
             name="nombreCompleto"
             value={formData.nombreCompleto}
             onChange={handleChange}
+            autoComplete="off"
             required
             placeholder="Ej. Juan Pérez"
             className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
@@ -100,12 +146,16 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-slate-300 mb-1.5">Teléfono Móvil</label>
+          <label className="block text-xs font-bold text-slate-300 mb-1.5">Teléfono Móvil (10 dígitos)</label>
           <input
-            type="tel"
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]{10}"
+            maxLength={10}
             name="telefono"
             value={formData.telefono}
             onChange={handleChange}
+            autoComplete="off"
             required
             placeholder="Ej. 9381234567"
             className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
@@ -119,6 +169,7 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
             name="correo"
             value={formData.correo}
             onChange={handleChange}
+            autoComplete="off"
             required
             placeholder="tu_correo@gmail.com"
             className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
@@ -132,6 +183,7 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
             name="contrasena"
             value={formData.contrasena}
             onChange={handleChange}
+            autoComplete="new-password"
             required
             placeholder="••••••••"
             className="w-full px-4 py-3 bg-[#0b0f19] border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition font-medium"
@@ -140,7 +192,7 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
 
         <button
           type="submit"
-          className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-extrabold py-3.5 rounded-2xl text-xs shadow-xl shadow-purple-600/25 transition duration-300 mt-2"
+          className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-extrabold py-3.5 rounded-2xl text-xs shadow-xl shadow-purple-600/25 transition duration-300 mt-2 cursor-pointer"
         >
           Continuar y Verificar Correo →
         </button>
@@ -150,7 +202,7 @@ function RegistroCliente({ onRegistroExitoso, onVolver }) {
         <button
           type="button"
           onClick={onVolver}
-          className="text-xs text-slate-400 hover:text-white font-bold underline transition"
+          className="text-xs text-slate-400 hover:text-white font-bold underline transition cursor-pointer"
         >
           ← Volver a opciones de registro
         </button>

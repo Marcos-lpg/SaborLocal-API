@@ -16,7 +16,6 @@ namespace SaborLocal.API.Controllers
             _context = context;
         }
 
-        // GET: api/pedidos (Lista todos los pedidos con sus productos)
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Pedido>>> GetPedidos()
         {
@@ -26,7 +25,6 @@ namespace SaborLocal.API.Controllers
                 .ToListAsync();
         }
 
-        // GET: api/pedidos/comercio/1 (Lista todos los pedidos sin restricción estricta de ID para asegurar visibilidad)
         [HttpGet("comercio/{tenantId}")]
         public async Task<ActionResult<IEnumerable<Pedido>>> GetPedidosPorComercio(int tenantId)
         {
@@ -36,12 +34,11 @@ namespace SaborLocal.API.Controllers
                 .ToListAsync();
         }
 
-        // POST: api/pedidos (Registra un nuevo pedido enviado por un cliente)
         [HttpPost]
         public async Task<ActionResult<Pedido>> PostPedido(Pedido pedido)
         {
             pedido.FechaCreacion = DateTime.UtcNow;
-            
+
             if (string.IsNullOrEmpty(pedido.Estado))
             {
                 pedido.Estado = "RECIBIDO";
@@ -53,7 +50,6 @@ namespace SaborLocal.API.Controllers
             return CreatedAtAction(nameof(GetPedidosPorComercio), new { tenantId = pedido.TenantId }, pedido);
         }
 
-        // PUT: api/pedidos/estado/5 (Actualiza el estatus: RECIBIDO -> EN_PREPARACION -> COMPLETADO)
         [HttpPut("estado/{id}")]
         public async Task<IActionResult> ActualizarEstadoPedido(int id, [FromBody] CambiarEstadoDto dto)
         {
@@ -73,5 +69,6 @@ namespace SaborLocal.API.Controllers
     public class CambiarEstadoDto
     {
         public string Estado { get; set; } = string.Empty;
+        public string? RepartidorNombre { get; set; }
     }
 }
